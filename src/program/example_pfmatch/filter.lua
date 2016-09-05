@@ -25,9 +25,9 @@ function Filter:new(conf)
    app.match = match.compile([[match {
      not ip => forward
      -- Drop fragmented packets.
-     ip[6:2] & 0x1fff != 0 => drop
-     ip src 192.168.0.114 => incoming_ip(&ip[0])
-     ip dst 192.168.0.114 => outgoing_ip(&ip[0])
+     ip[6:2] & 0x3fff != 0 => drop
+     ip src 10.0.0.6 => incoming_ip(&ip[0])
+     ip dst 10.0.0.6 => outgoing_ip(&ip[0])
      otherwise => drop
    }]])
    return setmetatable(app, {__index=Filter})
