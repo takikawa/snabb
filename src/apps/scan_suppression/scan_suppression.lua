@@ -12,6 +12,7 @@ local C = ffi.C
 local bit = require("bit")
 local mm  = require("lib.hash.murmur")
 local pfm = require("pf.match")
+local lib = require("core.lib")
 
 Scanner = {}
 
@@ -88,11 +89,15 @@ function htonl(s) return to_uint32(bit.bswap(s)) end
 
 -- temporary
 local function do_hash(data, len, off_src, off_dst, off_port)
-  local src_ip = htonl(rd32(data + off_src))
-  local dst_ip = htonl(rd32(data + off_dst))
-  local port = htonl(rd16(data + off_src))
+  local src_ip = lib.ntohl(rd32(data + off_src))
+  local dst_ip = lib.ntohl(rd32(data + off_dst))
+  local port = lib.ntohl(rd16(data + off_src))
 
-  print(src_ip)
+  print(string.format("%d.%d.%d.%d.",
+                      bit.band(0xFF, bit.rshift(src_ip, 128)),
+                      bit.band(0xFF, bit.rshift(src_ip, 64)),
+                      bit.band(0xFF, bit.rshift(src_ip, 32)),
+                      bit.band(0xFF, bit.rshift(src_ip, 0))))
 
   print(hash(src_ip, dst_ip, port))
 end
