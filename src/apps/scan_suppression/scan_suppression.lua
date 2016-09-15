@@ -74,18 +74,20 @@ function Scanner:push()
   end
 end
 
-function rd16(offset)
+local function rd16(offset)
    return ffi.cast("uint16_t*", offset)[0]
 end
-function rd32(offset)
+local function rd32(offset)
    return ffi.cast("uint32_t*", offset)[0]
 end
-local to_uint32_buf = ffi.new('uint32_t[1]')
-local function to_uint32(x)
-   to_uint32_buf[0] = x
-   return to_uint32_buf[0]
+
+local function print_ip(ip)
+  print(string.format("%d.%d.%d.%d.",
+                      bit.band(0x000000FF, bit.rshift(ip, 24)),
+                      bit.band(0x000000FF, bit.rshift(ip, 16)),
+                      bit.band(0x000000FF, bit.rshift(ip, 8)),
+                      bit.band(0x000000FF, bit.rshift(ip, 0))))
 end
-function htonl(s) return to_uint32(bit.bswap(s)) end
 
 -- temporary
 local function do_hash(data, len, off_src, off_dst, off_port)
@@ -93,13 +95,10 @@ local function do_hash(data, len, off_src, off_dst, off_port)
   local dst_ip = lib.ntohl(rd32(data + off_dst))
   local port = lib.ntohl(rd16(data + off_src))
 
-  print(string.format("%d.%d.%d.%d.",
-                      bit.band(0xFF, bit.rshift(src_ip, 128)),
-                      bit.band(0xFF, bit.rshift(src_ip, 64)),
-                      bit.band(0xFF, bit.rshift(src_ip, 32)),
-                      bit.band(0xFF, bit.rshift(src_ip, 0))))
+  print_ip(src_ip)
+  print_ip(dst_ip)
 
-  print(hash(src_ip, dst_ip, port))
+  print(hash(src_ip, dst_ip, port) % 1000000)
 end
 
 -- process_packet : InputPort OutputPort -> Void
