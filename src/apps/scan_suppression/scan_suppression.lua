@@ -89,23 +89,36 @@ local function print_ip(ip)
                       bit.band(0x000000FF, bit.rshift(ip, 0))))
 end
 
--- temporary
-local function do_hash(data, len, off_src, off_dst, off_port)
+-- Handle connections where the source is from "inside" wrt to
+-- the scan suppression
+local function inside(data, len, off_src, off_dst, off_port)
   local src_ip = lib.ntohl(rd32(data + off_src))
   local dst_ip = lib.ntohl(rd32(data + off_dst))
-  local port = lib.ntohl(rd16(data + off_src))
 
-  print_ip(src_ip)
-  print_ip(dst_ip)
+  local port = 0
+  if off_port ~= nil then
+    port = lib.ntohs(rd16(data + off_port))
+  end
 
-  print(hash(src_ip, dst_ip, port) % 1000000)
+  idx = hash(src_ip, dst_ip, port) % 1000000
+
+  -- TODO: pfmatch doesn't actually pass the 'self' parameter in its
+  --       compiled matcher, so this doesn't work...
+  --self.connection_cache = ...
+end
+
+-- Handle connections where the source is from "outside"
+-- the scan suppression target
+local function outside(data, len, off_src, off_dst, off_port)
 end
 
 -- process_packet : InputPort OutputPort -> Void
 function Scanner:process_packet(i, o)
   local pkt = link.receive(i)
 
-  self.do_hash = do_hash
+  -- TODO: put these assignments in the constructor
+  self.inside = inside
+  self.outside = outside
 
   --matcher = pfm.compile([[match {
   --  ip proto tcp and ip src 10 => do_hash(&ip[12:4], &ip[16:4], &tcp[2:2])
@@ -114,10 +127,25 @@ function Scanner:process_packet(i, o)
 
   self.matcher = pfm.compile([[
     match {
-      ip proto tcp and src net $loc_net => do_hash(&ip[12:4], &ip[16:4], &tcp[2:2])
+      -- TODO: what happens to the port argument when it's not TCP?
+      ip and src net $inside_net => {
+          -- TODO: it could be helpful to make the handler here the same in
+          --       all cases, but pass flags around instead
+          --       (in order to reduce code dup.)
+          --       (but pfmatch doesn't let you do that)
+          ip proto tcp => inside($src_addr_off, $dst_addr_off, $tcp_port_off)
+          otherwise => inside($src_addr_off, $dst_addr_off)
+        }
+      ip and not src net $inside_net => {
+          ip proto tcp => outside($src_addr_off, $dst_addr_off, $tcp_port_off)
+          otherwise => outside($src_addr_off, $dst_addr_off)
+        }
     }]],
     -- TODO: parameterize this in a better way
-    { subst = { loc_net = "10" } })
+    { subst = { src_addr_off = "&ip[12:4]",
+                dst_addr_off = "&ip[16:4]",
+                tcp_port_off = "&tcp[2:2]",
+                inside_net = "192" } })
 
   self:matcher(pkt.data, pkt.length)
 
