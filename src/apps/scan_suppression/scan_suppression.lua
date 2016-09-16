@@ -112,9 +112,12 @@ function Scanner:process_packet(i, o)
   --}]], {source = true})
   --print(matcher)
 
-  self.matcher = pfm.compile[[match {
-    ip proto tcp and ip src 10 => do_hash(&ip[12:4], &ip[16:4], &tcp[2:2])
-  }]]
+  self.matcher = pfm.compile([[
+    match {
+      ip proto tcp and src net $loc_net => do_hash(&ip[12:4], &ip[16:4], &tcp[2:2])
+    }]],
+    -- TODO: parameterize this in a better way
+    { subst = { loc_net = "10" } })
 
   self:matcher(pkt.data, pkt.length)
 
