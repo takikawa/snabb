@@ -108,13 +108,14 @@ function Scanner:process_packet(i, o)
   self.do_hash = do_hash
 
   --matcher = pfm.compile([[match {
-  --  ip proto tcp => do_hash(&ip[12:4], &ip[16:4], &tcp[2:2])
+  --  ip proto tcp and ip src 10 => do_hash(&ip[12:4], &ip[16:4], &tcp[2:2])
   --}]], {source = true})
+  --print(matcher)
+
   self.matcher = pfm.compile[[match {
-    ip proto tcp => do_hash(&ip[12:4], &ip[16:4], &tcp[2:2])
+    ip proto tcp and ip src 10 => do_hash(&ip[12:4], &ip[16:4], &tcp[2:2])
   }]]
 
-  --print(matcher)
   self:matcher(pkt.data, pkt.length)
 
   -- do processing
