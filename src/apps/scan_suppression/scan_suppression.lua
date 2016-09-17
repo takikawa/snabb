@@ -195,24 +195,41 @@ local function outside(data, len, off_src, off_dst, off_port)
 
   -- TODO: the code above this point is very similar between outside/inside
   --       so it should probably be abstracted
-  if cache_entry.out_to_in ~= 1 then
-    if cache_entry.in_to_out == 1 then
-      print("decrement count by one")
-      cache_entry.out_to_in = 1
-    else if false then
-      -- TODO: make this condition a "hygiene drop"
-      --       probably by detecting those conditions
-      --       in the matcher and passing a flag
-    else
-      print("increment count by one")
-      cache_entry.out_to_in = 1
+  if count < block_threshold then
+    if cache_entry.out_to_in ~= 1 then
+      if cache_entry.in_to_out == 1 then
+        print("decrement count by one")
+        cache_entry.out_to_in = 1
+      else if false then
+        -- TODO: make this condition a "hygiene drop"
+        --       probably by detecting those conditions
+        --       in the matcher and passing a flag
+      else
+        print("increment count by one")
+        cache_entry.out_to_in = 1
+      end
+      cache_entry.in_to_out = 1
     end
-    cache_entry.in_to_out = 1
-  end
 
-  -- if not dropped ...
-  cache_entry.age = 0
-  print("do forward packet")
+    -- if not dropped ...
+    cache_entry.age = 0
+    print("do forward packet")
+  -- i.e., above block threshold
+  else
+    if cache_entry.in_to_out == 1 then
+      if is_syn or is_udp then
+        print("drop packet")
+      else if cache_entry.out_to_in ~= 1 then
+        print("decrement count by one")
+        cache_entry.out_to_in = 1
+      end
+      -- internal or old
+      cache_entry.age = 0
+      print("do forward packet")
+    else
+      print("drop packet")
+    end
+  end
 end
 
 -- process_packet : InputPort OutputPort -> Void
