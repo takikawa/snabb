@@ -58,6 +58,7 @@ local function hash(in_ip, out_ip, in_port)
 end
 
 local connection_cache, address_cache
+local block_threshold = 5
 
 local function encrypt(addr)
   -- TODO: implement
