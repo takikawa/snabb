@@ -57,10 +57,71 @@ local function hash(in_ip, out_ip, in_port)
   return murmur:hash(key, 10, time).u32[0]
 end
 
+local connection_cache, address_cache
+
+local function encrypt(addr)
+  -- TODO: implement
+end
+
+-- look up an "outside" IP in the address cache
+local function lookup_count(addr)
+  idx, tag = encrypt(addr)
+  cache_line = address_cache[idx]
+
+  if tag == cache_line.tag1 then
+    return cache_line.count1
+  else if tag == cache_line.tag2 then
+    return cache_line.count2
+  else if tag == cache_line.tag3 then
+    return cache_line.count3
+  else if tag == cache_line.tag4 then
+    return cache_line.count4
+  else
+    -- either the initial value or an approximation if this
+    -- entry was evicted at some point
+    return 0
+  end
+end
+
+-- set the count for a given "outside" IP in the
+-- address cache to the given count
+local function set_count(addr, count)
+  idx, tag = encrypt(addr)
+  cache_line = address_cache[idx]
+
+  if tag == cache_line.tag1 then
+    cache_line.count1 = count
+  else if tag == cache_line.tag2 then
+    cache_line.count2 = count
+  else if tag == cache_line.tag3 then
+    cache_line.count3 = count
+  else if tag == cache_line.tag4 then
+    cache_line.count4 = count
+  else
+    -- must evict an entry now
+    local min_idx = 1
+    local min = cache_line.count1
+
+    for i = 2, i < 5 do
+      local cur = cache_line["count"..i]
+      if count < min then
+        min_idx = i
+        min = cur
+      else
+    end
+
+    cache_line["tag"..min_idx] = tag
+    cache_line["count"..min_idx] = count
+  end
+end
+
 -- constructor for the app object
 function Scanner:new()
-  local obj = { connection_cache = init_connection_cache(),
-                address_cache = init_address_cache() }
+  -- TODO: these really should be part of the object state, but because
+  --       pfmatch doesn't pass 'self' around, it can't be part of the state yet
+  connection_cache = init_connection_cache()
+  address_cache = init_address_cache()
+  local obj = { }
   return setmetatable(obj, {__index = Scanner})
 end
 
@@ -103,13 +164,55 @@ local function inside(data, len, off_src, off_dst, off_port)
   idx = hash(src_ip, dst_ip, port) % 1000000
 
   -- TODO: pfmatch doesn't actually pass the 'self' parameter in its
-  --       compiled matcher, so this doesn't work...
-  --self.connection_cache = ...
+  --       compiled matcher, which is why this doesn't access obj state
+  cache_entry = connection_cache[idx]
+  if cache_entry.in_to_out ~= 1 then
+    if cache_entry.out_to_in == 1 then
+      print("decrement count by two")
+    cache_entry.in_to_out = 1
+  end
+
+  cache_entry.age = 0
+
+  print("do forward packet")
 end
 
 -- Handle connections where the source is from "outside"
 -- the scan suppression target
 local function outside(data, len, off_src, off_dst, off_port)
+  local src_ip = lib.ntohl(rd32(data + off_src))
+  local dst_ip = lib.ntohl(rd32(data + off_dst))
+
+  local port = 0
+  if off_port ~= nil then
+    port = lib.ntohs(rd16(data + off_port))
+  end
+
+  idx = hash(src_ip, dst_ip, port) % 1000000
+
+  cache_entry = connection_cache[idx]
+  count = lookup_count(src_ip)
+
+  -- TODO: the code above this point is very similar between outside/inside
+  --       so it should probably be abstracted
+  if cache_entry.out_to_in ~= 1 then
+    if cache_entry.in_to_out == 1 then
+      print("decrement count by one")
+      cache_entry.out_to_in = 1
+    else if false then
+      -- TODO: make this condition a "hygiene drop"
+      --       probably by detecting those conditions
+      --       in the matcher and passing a flag
+    else
+      print("increment count by one")
+      cache_entry.out_to_in = 1
+    end
+    cache_entry.in_to_out = 1
+  end
+
+  -- if not dropped ...
+  cache_entry.age = 0
+  print("do forward packet")
 end
 
 -- process_packet : InputPort OutputPort -> Void
@@ -128,7 +231,7 @@ function Scanner:process_packet(i, o)
   self.matcher = pfm.compile([[
     match {
       -- TODO: what happens to the port argument when it's not TCP?
-      ip and src net $inside_net => {
+      ip and src net $inside_net and not dst net $inside_net => {
           -- TODO: it could be helpful to make the handler here the same in
           --       all cases, but pass flags around instead
           --       (in order to reduce code dup.)
@@ -136,7 +239,7 @@ function Scanner:process_packet(i, o)
           ip proto tcp => inside($src_addr_off, $dst_addr_off, $tcp_port_off)
           otherwise => inside($src_addr_off, $dst_addr_off)
         }
-      ip and not src net $inside_net => {
+      ip and not src net $inside_net and dst net $inside_net => {
           ip proto tcp => outside($src_addr_off, $dst_addr_off, $tcp_port_off)
           otherwise => outside($src_addr_off, $dst_addr_off)
         }
