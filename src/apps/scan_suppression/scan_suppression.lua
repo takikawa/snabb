@@ -60,22 +60,48 @@ end
 local connection_cache, address_cache
 local block_threshold = 5
 
+-- a very simple 32-bit cipher that's not meant for security
+-- taken from http://stackoverflow.com/a/9718378/898073
+--
+-- probably better to use something like skip32 in the long run
 local function encrypt(addr)
-  -- TODO: implement
+  local key = time
+
+  local L = bit.rshift(addr, 16)
+  local R = bit.band(addr, 0xFFFF)
+  local S = 0x79b9
+  local round
+
+  for round = 0, 24 do
+    local F_0 = bit.band(bit.bxor(bit.bxor(bit.rshift(R, 5),
+                                           bit.lshift(R, 2))
+                                  + bit.bxor(bit.rshift(R, 3),
+                                             bit.lshift(R, 4)),
+                                  bit.bxor(R, S) + bit.bxor(R, key)),
+                         0xFFFF)
+          F = bit.bxor(L, F_0)
+          R = F
+          S = S + 0x79b9
+          key = bit.bor(bit.rshift(key, 3), bit.lshift(key, 29))
+  end
+
+  ciphertext = bit.bor(bit.lshift(R, 16), L)
+  return bit.rshift(ciphertext, 16),
+         bit.band(ciphertext, 0x0000FFFF)
 end
 
 -- look up an "outside" IP in the address cache
 local function lookup_count(addr)
-  idx, tag = encrypt(addr)
-  cache_line = address_cache[idx]
+  local idx, tag = encrypt(addr)
+  local cache_line = address_cache[idx]
 
   if tag == cache_line.tag1 then
     return cache_line.count1
-  else if tag == cache_line.tag2 then
+  elseif tag == cache_line.tag2 then
     return cache_line.count2
-  else if tag == cache_line.tag3 then
+  elseif tag == cache_line.tag3 then
     return cache_line.count3
-  else if tag == cache_line.tag4 then
+  elseif tag == cache_line.tag4 then
     return cache_line.count4
   else
     -- either the initial value or an approximation if this
@@ -87,16 +113,16 @@ end
 -- set the count for a given "outside" IP in the
 -- address cache to the given count
 local function set_count(addr, count)
-  idx, tag = encrypt(addr)
-  cache_line = address_cache[idx]
+  local idx, tag = encrypt(addr)
+  local cache_line = address_cache[idx]
 
   if tag == cache_line.tag1 then
     cache_line.count1 = count
-  else if tag == cache_line.tag2 then
+  elseif tag == cache_line.tag2 then
     cache_line.count2 = count
-  else if tag == cache_line.tag3 then
+  elseif tag == cache_line.tag3 then
     cache_line.count3 = count
-  else if tag == cache_line.tag4 then
+  elseif tag == cache_line.tag4 then
     cache_line.count4 = count
   else
     -- must evict an entry now
@@ -108,7 +134,7 @@ local function set_count(addr, count)
       if count < min then
         min_idx = i
         min = cur
-      else
+      end
     end
 
     cache_line["tag"..min_idx] = tag
@@ -170,6 +196,7 @@ local function inside(data, len, off_src, off_dst, off_port)
   if cache_entry.in_to_out ~= 1 then
     if cache_entry.out_to_in == 1 then
       print("decrement count by two")
+    end
     cache_entry.in_to_out = 1
   end
 
@@ -193,6 +220,7 @@ local function outside(data, len, off_src, off_dst, off_port)
 
   cache_entry = connection_cache[idx]
   count = lookup_count(src_ip)
+  print(string.format("count is %d", count))
 
   -- TODO: the code above this point is very similar between outside/inside
   --       so it should probably be abstracted
@@ -201,7 +229,7 @@ local function outside(data, len, off_src, off_dst, off_port)
       if cache_entry.in_to_out == 1 then
         print("decrement count by one")
         cache_entry.out_to_in = 1
-      else if false then
+      elseif false then
         -- TODO: make this condition a "hygiene drop"
         --       probably by detecting those conditions
         --       in the matcher and passing a flag
@@ -218,9 +246,12 @@ local function outside(data, len, off_src, off_dst, off_port)
   -- i.e., above block threshold
   else
     if cache_entry.in_to_out == 1 then
+      -- TODO: fix these dummy values to actual packet inspection
+      local is_syn = false
+      local is_udp = false
       if is_syn or is_udp then
         print("drop packet")
-      else if cache_entry.out_to_in ~= 1 then
+      elseif cache_entry.out_to_in ~= 1 then
         print("decrement count by one")
         cache_entry.out_to_in = 1
       end
