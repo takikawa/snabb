@@ -64,15 +64,13 @@ local block_threshold = 5
 -- taken from http://stackoverflow.com/a/9718378/898073
 --
 -- probably better to use something like skip32 in the long run
-local function encrypt(addr)
-  local key = time
-
+local function encrypt(key, addr)
   local L = bit.rshift(addr, 16)
   local R = bit.band(addr, 0xFFFF)
   local S = 0x79b9
   local round
 
-  for round = 0, 24 do
+  for round = 0, 23 do
     local F_0 = bit.band(bit.bxor(bit.bxor(bit.rshift(R, 5),
                                            bit.lshift(R, 2))
                                   + bit.bxor(bit.rshift(R, 3),
@@ -80,19 +78,30 @@ local function encrypt(addr)
                                   bit.bxor(R, S) + bit.bxor(R, key)),
                          0xFFFF)
           F = bit.bxor(L, F_0)
+          L = R
           R = F
           S = S + 0x79b9
           key = bit.bor(bit.rshift(key, 3), bit.lshift(key, 29))
   end
 
-  ciphertext = bit.bor(bit.lshift(R, 16), L)
+  local ciphertext = bit.bor(bit.lshift(R, 16), L)
   return bit.rshift(ciphertext, 16),
          bit.band(ciphertext, 0x0000FFFF)
 end
 
+function encrypt_test()
+  local key = 0xf3cb8e14
+  local data1 = 0xfd325ffa
+  local data2 = 0x29ddecba
+
+  -- FIXME: this should test the idx/tag split properly
+  assert(encrypt(key, data1) == 1154796784)
+  assert(encrypt(key, data2) == 1100185509)
+end
+
 -- look up an "outside" IP in the address cache
 local function lookup_count(addr)
-  local idx, tag = encrypt(addr)
+  local idx, tag = encrypt(time, addr)
   local cache_line = address_cache[idx]
 
   if tag == cache_line.tag1 then
@@ -113,7 +122,7 @@ end
 -- set the count for a given "outside" IP in the
 -- address cache to the given count
 local function set_count(addr, count)
-  local idx, tag = encrypt(addr)
+  local idx, tag = encrypt(time, addr)
   local cache_line = address_cache[idx]
 
   if tag == cache_line.tag1 then
