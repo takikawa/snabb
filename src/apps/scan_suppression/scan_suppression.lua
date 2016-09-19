@@ -25,13 +25,13 @@ ffi.cdef[[
 
   typedef struct {
     uint16_t tag1;
-    uint16_t counter1;
+    uint16_t count1;
     uint16_t tag2;
-    uint16_t counter2;
+    uint16_t count2;
     uint16_t tag3;
-    uint16_t counter3;
+    uint16_t count3;
     uint16_t tag4;
-    uint16_t counter4;
+    uint16_t count4;
   } addr_cache_line_t;
 ]]
 
@@ -138,7 +138,7 @@ local function set_count(addr, count)
     local min_idx = 1
     local min = cache_line.count1
 
-    for i = 2, i < 5 do
+    for i = 2, 4 do
       local cur = cache_line["count"..i]
       if count < min then
         min_idx = i
@@ -198,13 +198,14 @@ local function inside(data, len, off_src, off_dst, off_port)
   end
 
   idx = hash(src_ip, dst_ip, port) % 1000000
+  count = lookup_count(dst_ip)
 
   -- TODO: pfmatch doesn't actually pass the 'self' parameter in its
   --       compiled matcher, which is why this doesn't access obj state
   cache_entry = connection_cache[idx]
   if cache_entry.in_to_out ~= 1 then
     if cache_entry.out_to_in == 1 then
-      print("decrement count by two")
+      set_count(dst_ip, count - 2)
     end
     cache_entry.in_to_out = 1
   end
@@ -236,14 +237,14 @@ local function outside(data, len, off_src, off_dst, off_port)
   if count < block_threshold then
     if cache_entry.out_to_in ~= 1 then
       if cache_entry.in_to_out == 1 then
-        print("decrement count by one")
+        set_count(src_ip, count - 1)
         cache_entry.out_to_in = 1
       elseif false then
         -- TODO: make this condition a "hygiene drop"
         --       probably by detecting those conditions
         --       in the matcher and passing a flag
       else
-        print("increment count by one")
+        set_count(src_ip, count + 1)
         cache_entry.out_to_in = 1
       end
       cache_entry.in_to_out = 1
@@ -261,7 +262,7 @@ local function outside(data, len, off_src, off_dst, off_port)
       if is_syn or is_udp then
         print("drop packet")
       elseif cache_entry.out_to_in ~= 1 then
-        print("decrement count by one")
+        set_count(src_ip, count - 1)
         cache_entry.out_to_in = 1
       end
       -- internal or old
@@ -306,7 +307,7 @@ function Scanner:process_packet(i, o)
     { subst = { src_addr_off = "&ip[12:4]",
                 dst_addr_off = "&ip[16:4]",
                 tcp_port_off = "&tcp[2:2]",
-                inside_net = "192" } })
+                inside_net = "10" } })
 
   self:matcher(pkt.data, pkt.length)
 
