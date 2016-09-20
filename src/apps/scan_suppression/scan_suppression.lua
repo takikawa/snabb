@@ -197,8 +197,6 @@ function Scanner:inside(data, len, off_src, off_dst, off_port)
   idx = hash(src_ip, dst_ip, port) % 1000000
   count = self:lookup_count(dst_ip)
 
-  -- TODO: pfmatch doesn't actually pass the 'self' parameter in its
-  --       compiled matcher, which is why this doesn't access obj state
   cache_entry = self.connection_cache[idx]
   if cache_entry.in_to_out ~= 1 then
     if cache_entry.out_to_in == 1 then
@@ -208,8 +206,7 @@ function Scanner:inside(data, len, off_src, off_dst, off_port)
   end
 
   cache_entry.age = 0
-
-  print("do forward packet")
+  link.transmit(self.output.output, self.pkt)
 end
 
 -- Handle connections where the source is from "outside"
@@ -249,7 +246,7 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
 
     -- if not dropped ...
     cache_entry.age = 0
-    print("do forward packet")
+    link.transmit(self.output.output, self.pkt)
   -- i.e., above block threshold
   else
     if cache_entry.in_to_out == 1 then
@@ -257,16 +254,16 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
       local is_syn = false
       local is_udp = false
       if is_syn or is_udp then
-        print("drop packet")
+        return packet.free(self.pkt)
       elseif cache_entry.out_to_in ~= 1 then
         self:set_count(src_ip, count - 1)
         cache_entry.out_to_in = 1
       end
       -- internal or old
       cache_entry.age = 0
-      print("do forward packet")
+      link.transmit(self.output.output, self.pkt)
     else
-      print("drop packet")
+      return packet.free(self.pkt)
     end
   end
 end
@@ -274,6 +271,8 @@ end
 -- process_packet : InputPort OutputPort -> Void
 function Scanner:process_packet(i, o)
   local pkt = link.receive(i)
+
+  self.pkt = pkt
 
   self.matcher = pfm.compile([[
     match {
@@ -298,7 +297,4 @@ function Scanner:process_packet(i, o)
                 inside_net = "10" } })
 
   self:matcher(pkt.data, pkt.length)
-
-  -- do processing
-  --link.transmit(o, p)
 end
