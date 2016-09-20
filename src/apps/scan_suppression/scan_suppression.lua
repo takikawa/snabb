@@ -294,7 +294,9 @@ function Scanner:process_packet(i, o)
     { subst = { src_addr_off = "&ip[12:4]",
                 dst_addr_off = "&ip[16:4]",
                 tcp_port_off = "&tcp[2:2]",
-                inside_net = "10" } })
+                --inside_net = "10"
+                -- for nmap capture
+                inside_net   = "192.168.100.102"} })
 
   self:matcher(pkt.data, pkt.length)
 end
