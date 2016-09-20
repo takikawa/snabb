@@ -4,18 +4,19 @@ local pcap = require("apps.pcap.pcap")
 local scan = require("apps.scan_suppression.scan_suppression")
 
 function run(parameters)
-  if not (#parameters == 2) then
-    print("Usage: example_scan <input> <output>")
+  if not (#parameters == 3) then
+    print("Usage: example_scan <network> <input> <output>")
     main.exit(1)
   end
 
-  local input = parameters[1]
-  local output = parameters[2]
+  local network = parameters[1]
+  local input = parameters[2]
+  local output = parameters[3]
 
   local c = config.new()
 
   config.app(c, "capture", pcap.PcapReader, input)
-  config.app(c, "scan", scan.Scanner)
+  config.app(c, "scan", scan.Scanner, { scan_inside_network = network })
   config.app(c, "output_file", pcap.PcapWriter, output)
 
   config.link(c, "capture.output -> scan.input")

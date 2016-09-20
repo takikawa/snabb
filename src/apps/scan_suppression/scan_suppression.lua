@@ -152,7 +152,7 @@ function Scanner:set_count(addr, count)
 end
 
 -- constructor for the app object
-function Scanner:new()
+function Scanner:new(conf)
   local obj = { connection_cache = init_connection_cache(),
                 address_cache = init_address_cache() }
 
@@ -172,13 +172,10 @@ function Scanner:new()
           otherwise => outside($src_addr_off, $dst_addr_off)
         }
     }]],
-    -- TODO: parameterize this in a better way
     { subst = { src_addr_off = "&ip[12:4]",
                 dst_addr_off = "&ip[16:4]",
                 tcp_port_off = "&tcp[2:2]",
-                --inside_net = "10"
-                -- for nmap capture
-                inside_net   = "192.168.100.102"} })
+                inside_net   = conf.scan_inside_network } })
 
   return setmetatable(obj, {__index = Scanner})
 end
