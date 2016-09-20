@@ -200,12 +200,12 @@ local function rd32(offset)
    return ffi.cast("uint32_t*", offset)[0]
 end
 
-local function print_ip(ip)
-  print(string.format("%d.%d.%d.%d.",
-                      bit.band(0x000000FF, bit.rshift(ip, 24)),
-                      bit.band(0x000000FF, bit.rshift(ip, 16)),
-                      bit.band(0x000000FF, bit.rshift(ip, 8)),
-                      bit.band(0x000000FF, bit.rshift(ip, 0))))
+local function format_ip(ip)
+  return string.format("%d.%d.%d.%d",
+                       bit.band(0x000000FF, bit.rshift(ip, 24)),
+                       bit.band(0x000000FF, bit.rshift(ip, 16)),
+                       bit.band(0x000000FF, bit.rshift(ip, 8)),
+                       bit.band(0x000000FF, ip))
 end
 
 -- Handle connections where the source is from "inside" wrt to
@@ -249,7 +249,6 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
 
   cache_entry = self.connection_cache[idx]
   count = self:lookup_count(src_ip)
-  print(string.format("count is %d", count))
 
   -- TODO: the code above this point is very similar between outside/inside
   --       so it should probably be abstracted
@@ -288,6 +287,7 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
       cache_entry.age = 0
       link.transmit(self.output.output, self.pkt)
     else
+      print(string.format("blocked packet from %s on port %d", format_ip(src_ip), port))
       return packet.free(self.pkt)
     end
   end

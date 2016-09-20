@@ -22,5 +22,5 @@ function run(parameters)
   config.link(c, "scan.output -> output_file.input")
 
   engine.configure(c)
-  engine.main({duration = 40, report = {showlinks = true}})
+  engine.main({duration = 10, report = {showlinks = true}})
 end
