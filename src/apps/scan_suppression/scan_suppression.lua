@@ -100,9 +100,9 @@ function encrypt_test()
 end
 
 -- look up an "outside" IP in the address cache
-local function lookup_count(addr)
+function Scanner:lookup_count(addr)
   local idx, tag = encrypt(time, addr)
-  local cache_line = address_cache[idx]
+  local cache_line = self.address_cache[idx]
 
   if tag == cache_line.tag1 then
     return cache_line.count1
@@ -121,9 +121,9 @@ end
 
 -- set the count for a given "outside" IP in the
 -- address cache to the given count
-local function set_count(addr, count)
+function Scanner:set_count(addr, count)
   local idx, tag = encrypt(time, addr)
-  local cache_line = address_cache[idx]
+  local cache_line = self.address_cache[idx]
 
   if tag == cache_line.tag1 then
     cache_line.count1 = count
@@ -153,11 +153,8 @@ end
 
 -- constructor for the app object
 function Scanner:new()
-  -- TODO: these really should be part of the object state, but because
-  --       pfmatch doesn't pass 'self' around, it can't be part of the state yet
-  connection_cache = init_connection_cache()
-  address_cache = init_address_cache()
-  local obj = { }
+  local obj = { connection_cache = init_connection_cache(),
+                address_cache = init_address_cache() }
   return setmetatable(obj, {__index = Scanner})
 end
 
@@ -188,7 +185,7 @@ end
 
 -- Handle connections where the source is from "inside" wrt to
 -- the scan suppression
-local function inside(data, len, off_src, off_dst, off_port)
+function Scanner:inside(data, len, off_src, off_dst, off_port)
   local src_ip = lib.ntohl(rd32(data + off_src))
   local dst_ip = lib.ntohl(rd32(data + off_dst))
 
@@ -198,14 +195,14 @@ local function inside(data, len, off_src, off_dst, off_port)
   end
 
   idx = hash(src_ip, dst_ip, port) % 1000000
-  count = lookup_count(dst_ip)
+  count = self:lookup_count(dst_ip)
 
   -- TODO: pfmatch doesn't actually pass the 'self' parameter in its
   --       compiled matcher, which is why this doesn't access obj state
-  cache_entry = connection_cache[idx]
+  cache_entry = self.connection_cache[idx]
   if cache_entry.in_to_out ~= 1 then
     if cache_entry.out_to_in == 1 then
-      set_count(dst_ip, count - 2)
+      self:set_count(dst_ip, count - 2)
     end
     cache_entry.in_to_out = 1
   end
@@ -217,7 +214,7 @@ end
 
 -- Handle connections where the source is from "outside"
 -- the scan suppression target
-local function outside(data, len, off_src, off_dst, off_port)
+function Scanner:outside(data, len, off_src, off_dst, off_port)
   local src_ip = lib.ntohl(rd32(data + off_src))
   local dst_ip = lib.ntohl(rd32(data + off_dst))
 
@@ -228,8 +225,8 @@ local function outside(data, len, off_src, off_dst, off_port)
 
   idx = hash(src_ip, dst_ip, port) % 1000000
 
-  cache_entry = connection_cache[idx]
-  count = lookup_count(src_ip)
+  cache_entry = self.connection_cache[idx]
+  count = self:lookup_count(src_ip)
   print(string.format("count is %d", count))
 
   -- TODO: the code above this point is very similar between outside/inside
@@ -237,14 +234,14 @@ local function outside(data, len, off_src, off_dst, off_port)
   if count < block_threshold then
     if cache_entry.out_to_in ~= 1 then
       if cache_entry.in_to_out == 1 then
-        set_count(src_ip, count - 1)
+        self:set_count(src_ip, count - 1)
         cache_entry.out_to_in = 1
       elseif false then
         -- TODO: make this condition a "hygiene drop"
         --       probably by detecting those conditions
         --       in the matcher and passing a flag
       else
-        set_count(src_ip, count + 1)
+        self:set_count(src_ip, count + 1)
         cache_entry.out_to_in = 1
       end
       cache_entry.in_to_out = 1
@@ -262,7 +259,7 @@ local function outside(data, len, off_src, off_dst, off_port)
       if is_syn or is_udp then
         print("drop packet")
       elseif cache_entry.out_to_in ~= 1 then
-        set_count(src_ip, count - 1)
+        self:set_count(src_ip, count - 1)
         cache_entry.out_to_in = 1
       end
       -- internal or old
@@ -277,15 +274,6 @@ end
 -- process_packet : InputPort OutputPort -> Void
 function Scanner:process_packet(i, o)
   local pkt = link.receive(i)
-
-  -- TODO: put these assignments in the constructor
-  self.inside = inside
-  self.outside = outside
-
-  --matcher = pfm.compile([[match {
-  --  ip proto tcp and ip src 10 => do_hash(&ip[12:4], &ip[16:4], &tcp[2:2])
-  --}]], {source = true})
-  --print(matcher)
 
   self.matcher = pfm.compile([[
     match {
