@@ -157,6 +157,9 @@ local hygiene_matcher =
                       or (tcp[tcpflags] & tcp-syn != 0
                           and tcp[tcpflags] & tcp-ack != 0)]])
 
+local syn_or_udp_matcher =
+  pf.compile_filter([[ip proto udp or tcp[tcpflags] & tcp-syn != 0]])
+
 -- constructor for the app object
 function Scanner:new(conf)
   local obj = { connection_cache = init_connection_cache(),
@@ -277,10 +280,8 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
   -- i.e., above block threshold
   else
     if cache_entry.in_to_out == 1 then
-      -- TODO: fix these dummy values to actual packet inspection
-      local is_syn = false
-      local is_udp = false
-      if is_syn or is_udp then
+      if syn_or_udp_matcher(self.pkt.data, self.pkt.length) then
+        print("blocked initial SYN/UDP packet for blocked host")
         return packet.free(self.pkt)
       elseif cache_entry.out_to_in ~= 1 then
         self:set_count(src_ip, count - 1)
