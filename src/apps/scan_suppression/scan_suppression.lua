@@ -11,6 +11,7 @@ local C = ffi.C
 
 local bit = require("bit")
 local mm  = require("lib.hash.murmur")
+local pf  = require("pf")
 local pfm = require("pf.match")
 local lib = require("core.lib")
 
@@ -151,6 +152,11 @@ function Scanner:set_count(addr, count)
   end
 end
 
+local hygiene_matcher =
+  pf.compile_filter([[tcp[tcpflags] & (tcp-rst|tcp-fin) != 0
+                      or (tcp[tcpflags] & tcp-syn != 0
+                          and tcp[tcpflags] & tcp-ack != 0)]])
+
 -- constructor for the app object
 function Scanner:new(conf)
   local obj = { connection_cache = init_connection_cache(),
@@ -254,10 +260,10 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
       if cache_entry.in_to_out == 1 then
         self:set_count(src_ip, count - 1)
         cache_entry.out_to_in = 1
-      elseif false then
-        -- TODO: make this condition a "hygiene drop"
-        --       probably by detecting those conditions
-        --       in the matcher and passing a flag
+      elseif hygiene_matcher(self.pkt.data, self.pkt.length) then
+        -- TODO: check doesn't seem to be happening? Fix
+        print("blocked packet due to hygiene check")
+        return packet.free(self.pkt)
       else
         self:set_count(src_ip, count + 1)
         cache_entry.out_to_in = 1
