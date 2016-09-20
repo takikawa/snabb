@@ -155,6 +155,31 @@ end
 function Scanner:new()
   local obj = { connection_cache = init_connection_cache(),
                 address_cache = init_address_cache() }
+
+  self.matcher = pfm.compile([[
+    match {
+      -- TODO: what happens to the port argument when it's not TCP?
+      ip and src net $inside_net and not dst net $inside_net => {
+          -- TODO: it could be helpful to make the handler here the same in
+          --       all cases, but pass flags around instead
+          --       (in order to reduce code dup.)
+          --       (but pfmatch doesn't let you do that)
+          ip proto tcp => inside($src_addr_off, $dst_addr_off, $tcp_port_off)
+          otherwise => inside($src_addr_off, $dst_addr_off)
+        }
+      ip and not src net $inside_net and dst net $inside_net => {
+          ip proto tcp => outside($src_addr_off, $dst_addr_off, $tcp_port_off)
+          otherwise => outside($src_addr_off, $dst_addr_off)
+        }
+    }]],
+    -- TODO: parameterize this in a better way
+    { subst = { src_addr_off = "&ip[12:4]",
+                dst_addr_off = "&ip[16:4]",
+                tcp_port_off = "&tcp[2:2]",
+                --inside_net = "10"
+                -- for nmap capture
+                inside_net   = "192.168.100.102"} })
+
   return setmetatable(obj, {__index = Scanner})
 end
 
@@ -273,30 +298,6 @@ function Scanner:process_packet(i, o)
   local pkt = link.receive(i)
 
   self.pkt = pkt
-
-  self.matcher = pfm.compile([[
-    match {
-      -- TODO: what happens to the port argument when it's not TCP?
-      ip and src net $inside_net and not dst net $inside_net => {
-          -- TODO: it could be helpful to make the handler here the same in
-          --       all cases, but pass flags around instead
-          --       (in order to reduce code dup.)
-          --       (but pfmatch doesn't let you do that)
-          ip proto tcp => inside($src_addr_off, $dst_addr_off, $tcp_port_off)
-          otherwise => inside($src_addr_off, $dst_addr_off)
-        }
-      ip and not src net $inside_net and dst net $inside_net => {
-          ip proto tcp => outside($src_addr_off, $dst_addr_off, $tcp_port_off)
-          otherwise => outside($src_addr_off, $dst_addr_off)
-        }
-    }]],
-    -- TODO: parameterize this in a better way
-    { subst = { src_addr_off = "&ip[12:4]",
-                dst_addr_off = "&ip[16:4]",
-                tcp_port_off = "&tcp[2:2]",
-                --inside_net = "10"
-                -- for nmap capture
-                inside_net   = "192.168.100.102"} })
 
   self:matcher(pkt.data, pkt.length)
 end
