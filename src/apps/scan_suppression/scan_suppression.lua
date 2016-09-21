@@ -135,7 +135,8 @@ function Scanner:set_count(addr, count)
   elseif tag == cache_line.tag4 then
     cache_line.count4 = count
   else
-    -- must evict an entry now
+    -- must evict an entry now, we'll evict the
+    -- one with the most negative count
     local min_idx = 1
     local min = cache_line.count1
 
@@ -241,6 +242,7 @@ function Scanner:inside(data, len, off_src, off_dst, off_port)
 
   if cache_entry.in_to_out ~= 1 then
     if cache_entry.out_to_in == 1 then
+      -- previously a "miss" but now a "hit"
       self:set_count(dst_ip, count - 2)
     end
     cache_entry.in_to_out = 1
@@ -268,6 +270,7 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
         print("blocked packet due to hygiene check")
         return packet.free(self.pkt)
       else
+        -- a potential "miss"
         self:set_count(src_ip, count + 1)
         cache_entry.out_to_in = 1
       end
@@ -284,6 +287,7 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
         print("blocked initial SYN/UDP packet for blocked host")
         return packet.free(self.pkt)
       elseif cache_entry.out_to_in ~= 1 then
+        -- a "hit"
         self:set_count(src_ip, count - 1)
         cache_entry.out_to_in = 1
       end
