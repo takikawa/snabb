@@ -226,17 +226,18 @@ function Scanner:extract(data, off_src, off_dst, off_port)
   end
 
   idx = hash(src_ip, dst_ip, port) % 1000000
-  count = self:lookup_count(dst_ip)
   cache_entry = self.connection_cache[idx]
 
-  return cache_entry, count, src_ip, dst_ip, port
+  return cache_entry, src_ip, dst_ip, port
 end
 
 -- Handle connections where the source is from "inside" wrt to
 -- the scan suppression
 function Scanner:inside(data, len, off_src, off_dst, off_port)
-  local cache_entry, count, src_ip, dst_ip, port =
+  local cache_entry, src_ip, dst_ip, port =
     self:extract(data, off_src, off_dst, off_port)
+
+  count = self:lookup_count(dst_ip)
 
   if cache_entry.in_to_out ~= 1 then
     if cache_entry.out_to_in == 1 then
@@ -252,8 +253,10 @@ end
 -- Handle connections where the source is from "outside"
 -- the scan suppression target
 function Scanner:outside(data, len, off_src, off_dst, off_port)
-  local cache_entry, count, src_ip, dst_ip, port =
+  local cache_entry, src_ip, dst_ip, port =
     self:extract(data, off_src, off_dst, off_port)
+
+  count = self:lookup_count(src_ip)
 
   if count < block_threshold then
     if cache_entry.out_to_in ~= 1 then
