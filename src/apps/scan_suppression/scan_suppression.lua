@@ -214,9 +214,9 @@ local function format_ip(ip)
                        bit.band(0x000000FF, ip))
 end
 
--- Handle connections where the source is from "inside" wrt to
--- the scan suppression
-function Scanner:inside(data, len, off_src, off_dst, off_port)
+-- Helper function that abstracts some data extraction/lookup
+-- in the inside/outside handlers
+function Scanner:extract(data, off_src, off_dst, off_port)
   local src_ip = lib.ntohl(rd32(data + off_src))
   local dst_ip = lib.ntohl(rd32(data + off_dst))
 
@@ -227,8 +227,17 @@ function Scanner:inside(data, len, off_src, off_dst, off_port)
 
   idx = hash(src_ip, dst_ip, port) % 1000000
   count = self:lookup_count(dst_ip)
-
   cache_entry = self.connection_cache[idx]
+
+  return cache_entry, count, src_ip, dst_ip, port
+end
+
+-- Handle connections where the source is from "inside" wrt to
+-- the scan suppression
+function Scanner:inside(data, len, off_src, off_dst, off_port)
+  local cache_entry, count, src_ip, dst_ip, port =
+    self:extract(data, off_src, off_dst, off_port)
+
   if cache_entry.in_to_out ~= 1 then
     if cache_entry.out_to_in == 1 then
       self:set_count(dst_ip, count - 2)
@@ -243,21 +252,9 @@ end
 -- Handle connections where the source is from "outside"
 -- the scan suppression target
 function Scanner:outside(data, len, off_src, off_dst, off_port)
-  local src_ip = lib.ntohl(rd32(data + off_src))
-  local dst_ip = lib.ntohl(rd32(data + off_dst))
+  local cache_entry, count, src_ip, dst_ip, port =
+    self:extract(data, off_src, off_dst, off_port)
 
-  local port = 0
-  if off_port ~= nil then
-    port = lib.ntohs(rd16(data + off_port))
-  end
-
-  idx = hash(src_ip, dst_ip, port) % 1000000
-
-  cache_entry = self.connection_cache[idx]
-  count = self:lookup_count(src_ip)
-
-  -- TODO: the code above this point is very similar between outside/inside
-  --       so it should probably be abstracted
   if count < block_threshold then
     if cache_entry.out_to_in ~= 1 then
       if cache_entry.in_to_out == 1 then
