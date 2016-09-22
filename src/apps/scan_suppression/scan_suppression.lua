@@ -36,6 +36,19 @@ ffi.cdef[[
   } addr_cache_line_t;
 ]]
 
+-- "T" in paper, the count at which we start to block connections
+local block_threshold = 5
+
+-- These specify the minimum and maximum connection counts that are allowed.
+-- A minimum is specified so that a "good" connection (more negative) that
+-- turns "bad" can be detected (as it turns more positive) without too many
+-- attempts.
+--
+-- The max lets offending machines eventually connect again when set at a
+-- finite value.
+local C_min = -5
+local C_max = math.huge
+
 local time = C.get_time_ns()
 local murmur = mm.MurmurHash3_x64_128:new()
 
@@ -59,7 +72,6 @@ local function hash(in_ip, out_ip, in_port)
 end
 
 local connection_cache, address_cache
-local block_threshold = 5
 
 -- a very simple 32-bit cipher that's not meant for security
 -- taken from http://stackoverflow.com/a/9718378/898073
@@ -123,33 +135,35 @@ end
 -- set the count for a given "outside" IP in the
 -- address cache to the given count
 function Scanner:set_count(addr, count)
-  local idx, tag = encrypt(time, addr)
-  local cache_line = self.address_cache[idx]
+  if not (count >= C_max or count <= C_min) then
+    local idx, tag = encrypt(time, addr)
+    local cache_line = self.address_cache[idx]
 
-  if tag == cache_line.tag1 then
-    cache_line.count1 = count
-  elseif tag == cache_line.tag2 then
-    cache_line.count2 = count
-  elseif tag == cache_line.tag3 then
-    cache_line.count3 = count
-  elseif tag == cache_line.tag4 then
-    cache_line.count4 = count
-  else
-    -- must evict an entry now, we'll evict the
-    -- one with the most negative count
-    local min_idx = 1
-    local min = cache_line.count1
+    if tag == cache_line.tag1 then
+      cache_line.count1 = count
+    elseif tag == cache_line.tag2 then
+      cache_line.count2 = count
+    elseif tag == cache_line.tag3 then
+      cache_line.count3 = count
+    elseif tag == cache_line.tag4 then
+      cache_line.count4 = count
+    else
+      -- must evict an entry now, we'll evict the
+      -- one with the most negative count
+      local min_idx = 1
+      local min = cache_line.count1
 
-    for i = 2, 4 do
-      local cur = cache_line["count"..i]
-      if count < min then
-        min_idx = i
-        min = cur
+      for i = 2, 4 do
+        local cur = cache_line["count"..i]
+        if count < min then
+          min_idx = i
+          min = cur
+        end
       end
-    end
 
-    cache_line["tag"..min_idx] = tag
-    cache_line["count"..min_idx] = count
+      cache_line["tag"..min_idx] = tag
+      cache_line["count"..min_idx] = count
+    end
   end
 end
 
