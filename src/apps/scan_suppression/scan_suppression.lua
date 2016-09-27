@@ -9,6 +9,7 @@ module(..., package.seeall)
 local ffi = require("ffi")
 local C = ffi.C
 
+local app = require("core.app")
 local bit = require("bit")
 local mm  = require("lib.hash.murmur")
 local pf  = require("pf")
@@ -49,15 +50,32 @@ local block_threshold = 5
 local C_min = -5
 local C_max = math.huge
 
+-- These specify the decay rate of connection stats. D_miss is the rate at
+-- which miss counts are decremented.
+--local D_miss = 60
+local D_miss = 1
+
+-- the number of seconds to wait to increase connection age and to check
+-- for the D_conn threshold
+--
+-- D_conn is the time it takes in "age" units for a connection to get
+-- dropped from the table.
+--local age_interval = 60
+local age_interval = 1
+local D_conn = 10
+
 local time = C.get_time_ns()
 local murmur = mm.MurmurHash3_x64_128:new()
 
+local connection_cache_size = 1000000
+local address_cache_size    = 1000000
+
 local function init_connection_cache()
-  return ffi.new("conn_cache_line_t[1000000]")
+   return ffi.new(string.format("conn_cache_line_t[%d]", connection_cache_size))
 end
 
 local function init_address_cache()
-  return ffi.new("addr_cache_line_t[1000000]")
+   return ffi.new(string.format("addr_cache_line_t[%d]", connection_cache_size))
 end
 
 -- hash : uint32 uint32 uint16 -> uint32
@@ -209,9 +227,61 @@ function Scanner:push()
   local i = assert(self.input.input, "input port not found")
   local o = assert(self.output.output, "output port not found")
 
+  -- every D_miss/age_interval do some checks
+  local now = app.now()
+  self.miss_timer = self.miss_timer or now
+  self.age_timer  = self.age_timer or now
+
+  if now - self.miss_timer >= D_miss then
+     self:decrement_misses()
+     self.miss_timer = now
+  end
+  if now - self.age_timer >= age_interval then
+     self:increment_ages()
+     self.age_timer = now
+  end
+
   while not link.empty(i) and not link.full(o) do
     self:process_packet(i, o)
   end
+end
+
+-- the following two methods handle time-based housekeeping tasks for
+-- maintaining the connection and address tables
+function Scanner:decrement_misses()
+   for i = 0, address_cache_size - 1 do
+      local entry = self.address_cache[i]
+
+      if (entry.count1 > 0) then
+	 entry.count1 = entry.count1 - 1
+      end
+      if (entry.count2 > 0) then
+	 entry.count2 = entry.count2 - 1
+      end
+      if (entry.count3 > 0) then
+	 entry.count3 = entry.count3 - 1
+      end
+      if (entry.count4 > 0) then
+	 entry.count4 = entry.count4 - 1
+      end
+   end
+end
+
+function Scanner:increment_ages()
+   for i = 0, connection_cache_size - 1 do
+      local entry = self.connection_cache[i]
+
+      -- is an active connection entry?
+      if entry.out_to_in or entry.in_to_out then
+	 entry.age = entry.age + 1
+      end
+
+      if entry.age >= D_conn then
+	 entry.out_to_in = 0
+	 entry.in_to_out = 0
+	 entry.age       = 0
+      end
+   end
 end
 
 local function rd16(offset)
