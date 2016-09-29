@@ -350,7 +350,6 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
         self:set_count(src_ip, count - 1)
         cache_entry.out_to_in = 1
       elseif hygiene_matcher(self.pkt.data, self.pkt.length) then
-        -- TODO: check doesn't seem to be happening? Fix
         print("blocked packet due to hygiene check")
         return packet.free(self.pkt)
       else
