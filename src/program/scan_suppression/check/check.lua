@@ -5,7 +5,7 @@ local scan = require("apps.scan_suppression.scan_suppression")
 
 function run(parameters)
   if not (#parameters == 3) then
-    print("Usage: example_scan <network> <input> <output>")
+    print("Usage: check <network> <input> <output>")
     main.exit(1)
   end
 
@@ -23,5 +23,5 @@ function run(parameters)
   config.link(c, "scan.output -> output_file.input")
 
   engine.configure(c)
-  engine.main({duration = 10, report = {showlinks = true}})
+  engine.main({duration = 0.1, report = {showlinks = true}})
 end
