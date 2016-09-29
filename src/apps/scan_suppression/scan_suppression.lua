@@ -70,6 +70,9 @@ local murmur = mm.MurmurHash3_x64_128:new()
 local connection_cache_size = 1000000
 local address_cache_size    = 1000000
 
+-- whether to print debug messages
+local debug = false
+
 local function init_connection_cache()
    return ffi.new(string.format("conn_cache_line_t[%d]", connection_cache_size))
 end
@@ -350,7 +353,9 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
         self:set_count(src_ip, count - 1)
         cache_entry.out_to_in = 1
       elseif hygiene_matcher(self.pkt.data, self.pkt.length) then
-        print("blocked packet due to hygiene check")
+	if debug then
+	   print("blocked packet due to hygiene check")
+	end
         return packet.free(self.pkt)
       else
         -- a potential "miss"
@@ -365,22 +370,27 @@ function Scanner:outside(data, len, off_src, off_dst, off_port)
     link.transmit(self.output.output, self.pkt)
   -- i.e., above block threshold
   else
-    if cache_entry.in_to_out == 1 then
-      if syn_or_udp_matcher(self.pkt.data, self.pkt.length) then
-        print("blocked initial SYN/UDP packet for blocked host")
-        return packet.free(self.pkt)
-      elseif cache_entry.out_to_in ~= 1 then
-        -- a "hit"
-        self:set_count(src_ip, count - 1)
-        cache_entry.out_to_in = 1
-      end
-      -- internal or old
-      cache_entry.age = 0
-      link.transmit(self.output.output, self.pkt)
-    else
-      print(string.format("blocked packet from %s on port %d", format_ip(src_ip), port))
-      return packet.free(self.pkt)
-    end
+     if cache_entry.in_to_out == 1 then
+        if syn_or_udp_matcher(self.pkt.data, self.pkt.length) then
+	   if debug then
+	      print("blocked initial SYN/UDP packet for blocked host")
+	   end
+	   return packet.free(self.pkt)
+	elseif cache_entry.out_to_in ~= 1 then
+	   -- a "hit"
+	   self:set_count(src_ip, count - 1)
+	   cache_entry.out_to_in = 1
+	end
+	-- internal or old
+	cache_entry.age = 0
+	link.transmit(self.output.output, self.pkt)
+     else
+	if debug then
+	   print(string.format("blocked packet from %s on port %d",
+			       format_ip(src_ip), port))
+	end
+	return packet.free(self.pkt)
+     end
   end
 end
 
