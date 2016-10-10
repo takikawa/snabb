@@ -55,16 +55,14 @@ local C_max = math.huge
 
 -- These specify the decay rate of connection stats. D_miss is the rate at
 -- which miss counts are decremented.
---local D_miss = 60
-local D_miss = 1
+local D_miss = 60
 
 -- the number of seconds to wait to increase connection age and to check
 -- for the D_conn threshold
 --
 -- D_conn is the time it takes in "age" units for a connection to get
 -- dropped from the table.
---local age_interval = 60
-local age_interval = 1
+local age_interval = 60
 local D_conn = 10
 
 local time = C.get_time_ns()
