@@ -124,16 +124,6 @@ local function encrypt(key, addr)
          bit.band(ciphertext, 0x0000FFFF)
 end
 
-function encrypt_test()
-  local key = 0xf3cb8e14
-  local data1 = 0xfd325ffa
-  local data2 = 0x29ddecba
-
-  -- FIXME: this should test the idx/tag split properly
-  assert(encrypt(key, data1) == 1154796784)
-  assert(encrypt(key, data2) == 1100185509)
-end
-
 -- look up an "outside" IP in the address cache
 function Scanner:lookup_count(addr)
   local idx, tag = encrypt(time, addr)
@@ -402,4 +392,18 @@ function Scanner:process_packet(i, o)
   self.pkt = pkt
 
   self:matcher(pkt.data, pkt.length)
+end
+
+function selftest()
+  -- first some tests for encryption routines
+  local key = 0xf3cb8e14
+  local data1 = 0xfd325ffa
+  local data2 = 0x29ddecba
+
+  r1, r2 = encrypt(key, data1)
+  r3, r4 = encrypt(key, data2)
+  assert(r1 == 17620)
+  assert(r2 == 52464)
+  assert(r3 == 16787)
+  assert(r4 == 32677)
 end
