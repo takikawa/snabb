@@ -2,7 +2,10 @@
 
 -- This app implements an approximate TRW-like scan detector
 -- described in the Usenix Security paper
+--
 --   "Very Fast Containment of Scanning Worms"
+--   Weaver, Staniford, Paxson
+--   https://www.usenix.org/legacy/event/sec04/tech/full_papers/weaver/weaver_html/index.html
 
 module(..., package.seeall)
 
