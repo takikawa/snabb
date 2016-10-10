@@ -314,7 +314,7 @@ function Scanner:extract(data, off_src, off_dst, off_port)
     port = lib.ntohs(rd16(data + off_port))
   end
 
-  idx = hash(src_ip, dst_ip, port) % 1000000
+  idx = hash(src_ip, dst_ip, port) % connection_cache_size
   cache_entry = self.connection_cache[idx]
 
   return cache_entry, src_ip, dst_ip, port
