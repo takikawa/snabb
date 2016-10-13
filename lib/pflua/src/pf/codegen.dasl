@@ -1,0 +1,200 @@
+module(..., package.seeall)
+
+local ffi = require("ffi")
+local bit = require("bit")
+local C = ffi.C
+
+local dasm = require("dasm")
+
+|.arch x64
+|.actionlist actions
+
+-- Table keeping machine code alive to the GC.
+local anchor = {}
+
+local debug = true
+
+local blk_label    = 2
+local blk_bindings = 3
+local blk_control  = 4
+
+-- Note that we always negate the condition because the ordering
+-- of the SSA IR puts the true branch first
+local jmp_types =
+   { ["=="] = "je",
+     [">="] = "jl",
+     ["<="] = "jg",
+     [">"]  = "jle",
+     ["<"]  = "jge", }
+
+-- translate a variable occurrence into the appropriate
+-- register, perhaps consulting the register allocation
+function translate_variable(var)
+  if var == "P" then
+    return "edi"
+  elseif var == "len" then
+    return "esi"
+  end
+end
+
+-- extract a number from an SSA IR label
+function label_num(label)
+  return string.match(label, "L(%d)")
+end
+
+-- find the largest label number in the IR
+function find_max_label(blocks)
+  local max = 1
+
+  for _, block in ipairs(blocks) do
+    local cur = label_num(block[blk_label])
+
+    if cur > max then
+      max = cur
+    end
+  end
+
+  return max
+end
+
+-- compile an expression that appears in the argument position of a return
+function compile_expr(expr)
+  local op = expr[1]
+
+  if op == "==" then
+    local lhs = expr[2]
+    local rhs = expr[3]
+
+    -- TODO: is it actually the case that rhs is always an immediate?
+    compile_expr(lhs)
+
+    | cmp eax, rhs
+    | je =>0
+    | jmp =>1
+  elseif op == "[]" then
+    local offset = expr[2]
+    local bytes  = expr[3]
+    reg = translate_variable("P")
+
+    if bytes == 1 then
+      | movzx eax, byte [reg + offset]
+    elseif bytes == 2 then
+      | movzx eax, word [reg + offset]
+    else
+      | mov eax, dword [reg + offset]
+    end
+  end
+end
+
+local function compile(ssa, alloc)
+   local Dst = dasm.new(actions)
+   local blocks = ssa[3]
+
+   -- track the mapping of SSA block labels to asm labels
+   local label_map = {}
+
+   -- number of =>(...) style labels
+   local maxpc = find_max_label(blocks)
+   Dst:growpc(maxpc + 2)
+
+   -- return true, false
+   -- TODO: do this more cleverly
+   |=>0:
+   | mov eax, 0x1
+   | ret
+   |=>1:
+   | mov eax, 0x0
+   | ret
+
+   for _, block in ipairs(blocks) do
+     cur_label = label_num(block[blk_label]) + 1
+     |=>(cur_label):
+
+     local control = block[blk_control][1]
+     local op = control[1]
+
+     -- TODO: if a block has bindings then the LHSs need to be evaluated
+     --       and stored in registers
+
+     if op == "if" then
+       local cmp_op = control[2][1]
+       local jmp_instr = jmp_type[cmp_op]
+       local target = translate_variable(control[2][2])
+       local const = control[2][3]
+
+       local next_label = label_num(control[2][4])
+
+       | mov eax, target
+       | cmp eax, const
+
+       -- TODO: this feels very hackish
+       if cmp_op == "==" then
+         | jne =>(next_label)
+       elseif cmp_op == ">=" then
+         | jl =>(next_label)
+       elseif cmp_op == "<=" then
+         | jg =>(next_label)
+       elseif cmp_op == ">" then
+         | jle =>(next_label)
+       elseif cmp_op == "<" then
+         | jge =>(next_label)
+       end
+     elseif op == "return" then
+       local expr = control[2]
+
+       if expr == "true" then
+         | jmp =>0
+       elseif expr == "false" then
+         | jmp =>1
+       else
+         compile_expr(control[2])
+       end
+     end
+   end
+
+   local mcode, size = Dst:build()
+   table.insert(anchor, mcode)
+
+   if debug then
+      print("mcode dump:")
+      dasm.dump(mcode, size)
+   end
+
+   return ffi.cast(ffi.typeof("unsigned char(*)(unsigned char*, uint16_t)"),
+                   mcode)
+end
+
+function selftest()
+   local max_label_example_1 =
+      { "blocks",
+        { "block",
+          { "label", "L1" }, },
+        { "block",
+          { "label", "L4" }, },
+        { "block",
+          { "label", "L5" }, } }
+
+   assert(find_max_label(max_label_example_1) == 5)
+
+   local example_1 =
+      { "ssa",
+	{ "start", "L1" },
+	{ "blocks",
+	  { "block",
+	    { "label", "L1" },
+	    { "bindings" },
+	    { "control",
+	      { "if", { ">=", "len", 14 }, "L4", "L5" } } },
+	  { "block",
+	    { "label", "L4" },
+	    { "bindings" },
+	    { "control",
+	      { "return",
+		{ "=", { "[]", 12, 2 }, 8 } } } },
+	  { "block",
+	    { "label", "L5" },
+	    { "bindings" },
+	    { "control", { "return", { "false" } } } } } }
+
+  compile(example_1, {})
+end

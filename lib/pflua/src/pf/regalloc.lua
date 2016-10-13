@@ -151,4 +151,30 @@ function selftest()
    assert(intervals_2[2].name == "v2")
    assert(intervals_2[2].start == 6)
    assert(intervals_2[2].finish == 9)
+
+   -- "ip[2:2] * 3 = 0"
+   example_3 = { "ssa",
+                  { "start", "L1" },
+                  { "blocks",
+                     { "block",
+                        { "label", "L1" },
+                        { "bindings" },
+                        { "control", { "if", { ">=", "len", 34 }, "L4", "L5" } } },
+                     { "block",
+                        { "label", "L4" },
+                        { "bindings" },
+                        { "control", { "if", { "=", { "[]", 12, 2 }, 8 }, "L6", "L7" } } },
+                     { "block",
+                        { "label", "L6" },
+                        { "bindings" },
+                        { "control", { "return", { "=", { "*64", { "ntohs", { "[]", 16, 2 } }, 3 }, 0 } } } },
+                     { "block",
+                        { "label", "L7" },
+                        { "bindings" },
+                        { "control", { "return", { "false" } } } },
+                     { "block",
+                        { "label", "L5" },
+                        { "bindings" },
+                        { "control", { "return", { "false" } } } } } }
+
 end
