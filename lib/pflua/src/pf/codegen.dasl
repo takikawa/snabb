@@ -39,15 +39,16 @@ end
 
 -- extract a number from an SSA IR label
 function label_num(label)
-  return string.match(label, "L(%d)")
+  return tonumber(string.match(label, "L(%d)"))
 end
 
 -- find the largest label number in the IR
 function find_max_label(blocks)
   local max = 1
 
-  for _, block in ipairs(blocks) do
-    local cur = label_num(block[blk_label])
+  for i = 2, #blocks do
+    local block = blocks[i]
+    local cur = label_num(block[blk_label][2])
 
     if cur > max then
       max = cur
@@ -58,15 +59,15 @@ function find_max_label(blocks)
 end
 
 -- compile an expression that appears in the argument position of a return
-function compile_expr(expr)
+function compile_expr(Dst, expr)
   local op = expr[1]
 
-  if op == "==" then
+  if op == "=" then
     local lhs = expr[2]
     local rhs = expr[3]
 
     -- TODO: is it actually the case that rhs is always an immediate?
-    compile_expr(lhs)
+    compile_expr(Dst, lhs)
 
     | cmp eax, rhs
     | je =>0
@@ -86,6 +87,15 @@ function compile_expr(expr)
   end
 end
 
+local function compile_cmp(Dst, var, const)
+   -- TODO: this needs to account for register allocation
+   if var == "P" then
+      | cmp edi, const
+   elseif var == "len" then
+      | cmp esi, const
+   end
+end
+
 local function compile(ssa, alloc)
    local Dst = dasm.new(actions)
    local blocks = ssa[3]
@@ -97,35 +107,28 @@ local function compile(ssa, alloc)
    local maxpc = find_max_label(blocks)
    Dst:growpc(maxpc + 2)
 
-   -- return true, false
-   -- TODO: do this more cleverly
-   |=>0:
-   | mov eax, 0x1
-   | ret
-   |=>1:
-   | mov eax, 0x0
-   | ret
+   for i = 2, #blocks do
+     local block = blocks[i]
 
-   for _, block in ipairs(blocks) do
-     cur_label = label_num(block[blk_label]) + 1
+     cur_label = label_num(block[blk_label][2]) + 1
      |=>(cur_label):
 
-     local control = block[blk_control][1]
+     local control = block[blk_control][2]
      local op = control[1]
 
      -- TODO: if a block has bindings then the LHSs need to be evaluated
      --       and stored in registers
 
+print(op)
+
      if op == "if" then
        local cmp_op = control[2][1]
-       local jmp_instr = jmp_type[cmp_op]
-       local target = translate_variable(control[2][2])
+       local jmp_instr = jmp_types[cmp_op]
        local const = control[2][3]
 
-       local next_label = label_num(control[2][4])
+       local next_label = label_num(control[4])
 
-       | mov eax, target
-       | cmp eax, const
+       compile_cmp(Dst, control[2][2], const)
 
        -- TODO: this feels very hackish
        if cmp_op == "==" then
@@ -141,16 +144,26 @@ local function compile(ssa, alloc)
        end
      elseif op == "return" then
        local expr = control[2]
+       print("return case")
 
-       if expr == "true" then
+       if #expr == 1 and expr[1] == "true" then
          | jmp =>0
-       elseif expr == "false" then
+       elseif #expr == 1 and expr[1] == "false" then
          | jmp =>1
        else
-         compile_expr(control[2])
+         compile_expr(Dst, expr)
        end
      end
    end
+
+   -- return true, false
+   -- TODO: do this more cleverly
+   |=>0:
+   | mov eax, 0x1
+   | ret
+   |=>1:
+   | mov eax, 0x0
+   | ret
 
    local mcode, size = Dst:build()
    table.insert(anchor, mcode)
