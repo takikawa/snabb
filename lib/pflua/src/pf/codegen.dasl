@@ -170,7 +170,7 @@ local function compile(ssa, alloc)
       dasm.dump(mcode, size)
    end
 
-   return ffi.cast(ffi.typeof("unsigned char(*)(unsigned char*, uint16_t)"),
+   return ffi.cast(ffi.typeof("bool(*)(unsigned char*, uint16_t)"),
                    mcode)
 end
 
@@ -186,25 +186,58 @@ function selftest()
 
    assert(find_max_label(max_label_example_1) == 5)
 
+   -- `ip`
    local example_1 =
       { "ssa",
-	{ "start", "L1" },
-	{ "blocks",
-	  { "block",
-	    { "label", "L1" },
-	    { "bindings" },
-	    { "control",
-	      { "if", { ">=", "len", 14 }, "L4", "L5" } } },
-	  { "block",
-	    { "label", "L4" },
-	    { "bindings" },
-	    { "control",
-	      { "return",
-		{ "=", { "[]", 12, 2 }, 8 } } } },
-	  { "block",
-	    { "label", "L5" },
-	    { "bindings" },
-	    { "control", { "return", { "false" } } } } } }
+         { "start", "L1" },
+         { "blocks",
+            { "block",
+               { "label", "L1" },
+               { "bindings" },
+               { "control",
+                  { "if", { ">=", "len", 14 }, "L4", "L5" } } },
+            { "block",
+               { "label", "L4" },
+               { "bindings" },
+               { "control",
+                  { "return",
+                     { "=", { "[]", 12, 2 }, 8 } } } },
+            { "block",
+               { "label", "L5" },
+               { "bindings" },
+               { "control", { "return", { "false" } } } } } }
 
-  compile(example_1, {})
+   -- `arp`
+   local example_2 =
+      { "ssa",
+         { "start", "L1" },
+         { "blocks",
+            { "block",
+               { "label", "L1" },
+               { "bindings" },
+               { "control",
+                  { "if", { ">=", "len", 14 }, "L4", "L5" } } },
+            { "block",
+               { "label", "L4" },
+               { "bindings" },
+               { "control",
+                  { "return", { "=", { "[]", 12, 2 }, 1544 } } } },
+            { "block",
+               { "label", "L5" },
+               { "bindings" },
+               { "control", { "return", { "false" } } } } } }
+
+   local function test(ssa, pkt)
+      -- Compile and then call native function on the given packet
+      local f = compile(ssa, {})
+      return f(pkt.packet, pkt.len)
+   end
+
+   local savefile = require("pf.savefile")
+   pkts = savefile.load_packets("../tests/data/arp.pcap")
+
+   -- not an arp packet
+   assert(not test(example_1, pkts[1]))
+   -- yay arp
+   assert(test(example_2, pkts[1]))
 end
