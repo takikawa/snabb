@@ -119,8 +119,6 @@ local function compile(ssa, alloc)
      -- TODO: if a block has bindings then the LHSs need to be evaluated
      --       and stored in registers
 
-print(op)
-
      if op == "if" then
        local cmp_op = control[2][1]
        local jmp_instr = jmp_types[cmp_op]
@@ -144,7 +142,6 @@ print(op)
        end
      elseif op == "return" then
        local expr = control[2]
-       print("return case")
 
        if #expr == 1 and expr[1] == "true" then
          | jmp =>0
