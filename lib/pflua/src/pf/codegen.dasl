@@ -238,6 +238,8 @@ function selftest()
 
    -- not an arp packet
    assert(not test(example_1, pkts[1]))
+   assert(not test(example_1, pkts[2]))
    -- yay arp
    assert(test(example_2, pkts[1]))
+   assert(test(example_2, pkts[2]))
 end
