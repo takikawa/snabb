@@ -75,14 +75,14 @@ function compile_expr(Dst, expr)
   elseif op == "[]" then
     local offset = expr[2]
     local bytes  = expr[3]
-    reg = translate_variable("P")
 
+    -- the "P" variable is in %edi since it's the first argument
     if bytes == 1 then
-      | movzx eax, byte [reg + offset]
+      | movzx eax, byte [edi + offset]
     elseif bytes == 2 then
-      | movzx eax, word [reg + offset]
+      | movzx eax, word [edi + offset]
     else
-      | mov eax, dword [reg + offset]
+      | mov eax, dword [edi + offset]
     end
   end
 end
