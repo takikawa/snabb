@@ -58,6 +58,11 @@ function find_max_label(blocks)
   return max
 end
 
+-- extract a number from a variable name
+function variable_num(var)
+  return tonumber(string.match(var, "v(%d)"))
+end
+
 -- compile an expression that appears in the argument position of a return
 function compile_expr(Dst, expr)
   local op = expr[1]
@@ -116,8 +121,16 @@ local function compile(ssa, alloc)
      local control = block[blk_control][2]
      local op = control[1]
 
-     -- TODO: if a block has bindings then the LHSs need to be evaluated
-     --       and stored in registers
+     local bindings = block[blk_bindings]
+
+     -- TODO: use registers instead of stack slots
+     for _, binding in ipairs(bindings) do
+       local var = binding[1]
+       local expr = binding[2]
+
+       compile_expr(expr)
+       | push eax
+     end
 
      if op == "if" then
        local cmp_op = control[2][1]
@@ -222,6 +235,82 @@ function selftest()
                { "bindings" },
                { "control",
                   { "return", { "=", { "[]", 12, 2 }, 1544 } } } },
+            { "block",
+               { "label", "L5" },
+               { "bindings" },
+               { "control", { "return", { "false" } } } } } }
+
+   local example_3 =
+      { "ssa",
+         { "start", "L1" },
+         { "blocks",
+            { "block",
+               { "label", "L1" },
+               { "bindings" },
+               { "control",
+                  { "if", { ">=", "len", 34 }, "L4", "L5" } } },
+            { "block",
+               { "label", "L4" },
+               { "bindings",
+                  { "v1", { "[]", 12, 2 } } },
+               { "control",
+                  { "if", { "=", "v1", 8 }, "L6", "L7" } } },
+            { "block",
+               { "label", "L6" },
+               { "bindings" },
+               { "control",
+                  { "return", { "=", { "[]", 23, 1 }, 6 } } } },
+            { "block",
+               { "label", "L7" },
+               { "bindings" },
+               { "control",
+                  { "if", { ">=", "len", 54 }, "L8", "L9" } } },
+            { "block",
+               { "label", "L8" },
+               { "bindings" },
+               { "control",
+                  { "if", { "=", "v1", 56710 }, "L10", "L11" } } },
+            { "block",
+               { "label", "L10" },
+               { "bindings",
+                  { "v2", { "[]", 20, 1 } } },
+               { "control",
+                  { "if", { "=", "v2", 6 }, "L12", "L13" } } },
+            { "block",
+               { "label", "L12" },
+               { "bindings" },
+               { "control", { "return", { "true" } } } },
+            { "block",
+               { "label", "L13" },
+               { "bindings" },
+               { "control",
+                 { "if", { ">=", "len", 55 }, "L14", "L15" } } },
+            { "block",
+               { "label", "L14" },
+               { "bindings" },
+               { "control",
+                 { "if", { "=", "v2", 44 }, "L16", "L17" } } },
+            { "block",
+               { "label", "L16" },
+               { "bindings" },
+               { "control",
+                  { "return", { "=", { "[]", 54, 1 }, 6 } } } },
+            { "block",
+               { "label", "L17" },
+               { "bindings" },
+               { "control", { "return", { "false" } } } },
+            { "block",
+               { "label", "L15" },
+               { "bindings" },
+               { "control", { "return", { "false" } } } },
+            { "block",
+               { "label", "L11" },
+               { "bindings" },
+               { "control", { "return", { "false" } } } },
+            { "block",
+               { "label", "L9" },
+               { "bindings" },
+               { "control", { "return", { "false" } } } },
             { "block",
                { "label", "L5" },
                { "bindings" },
