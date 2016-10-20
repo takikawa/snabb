@@ -5,10 +5,11 @@
 -- The result of register allocation is a table mapping variables
 -- to registers. e.g.,
 --
---   { v1 = "ecx", v2 = "edx", v3 = "spill"}
+--   { v1 = "ecx", v2 = "edx", v3 = { spill = 0 }, num_spilled = 1 }
 --
--- where a "spill" entry means to spill to the stack. This is
--- used by the code generation pass.
+-- where a spill table entry means to spill to the stack at the
+-- given slot. The num_spilled entry indicates the number of spilled
+-- variables.
 --
 -- We conduct a simple allocation in which variables
 -- have a single live range with no holes, which should work well
