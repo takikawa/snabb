@@ -69,7 +69,7 @@ function compile_expr(Dst, expr)
     -- TODO: is it actually the case that rhs is always an immediate?
     compile_expr(Dst, lhs)
 
-    | cmp eax, rhs
+    | cmp rax, rhs
     | je =>0
     | jmp =>1
   elseif op == "[]" then
@@ -87,16 +87,38 @@ function compile_expr(Dst, expr)
   end
 end
 
-local function compile_cmp(Dst, var, const)
-   -- TODO: this needs to account for register allocation
+local function compile_cmp(Dst, var, const, alloc)
    if var == "P" then
       | cmp edi, const
+      return
    elseif var == "len" then
       | cmp esi, const
+      return
+   end
+
+   local reg = alloc[var]
+
+   -- TODO: this hard-coded conditional is unfortunate
+   if type(reg) == "table" then
+     -- spill case
+     local offset = reg.spill * 32
+     | cmp dword [rsp + offset], const
+   elseif reg == "rcx" then
+     | cmp rcx, const
+   elseif reg == "rdx" then
+     | cmp rdx, const
+   elseif reg == "r8" then
+     | cmp r8, const
+   elseif reg == "r9" then
+     | cmp r9, const
+   elseif reg == "r10" then
+     | cmp r10, const
+   elseif reg == "r11" then
+     | cmp r11, const
    end
 end
 
--- generate a move from eax to the appropriate register
+-- generate a move from rax to the appropriate register
 -- TODO: for now we assume that only the caller-save
 --       registers rcx, rdx, r8-r11 are used
 local function compile_var_move(Dst, var, alloc)
@@ -166,7 +188,7 @@ local function compile(ssa, alloc)
 
        local next_label = label_num(control[4])
 
-       compile_cmp(Dst, control[2][2], const)
+       compile_cmp(Dst, control[2][2], const, alloc)
 
        -- TODO: this feels very hackish
        if cmp_op == "==" then
@@ -196,10 +218,10 @@ local function compile(ssa, alloc)
    -- return true, false
    -- TODO: do this more cleverly
    |=>0:
-   | mov eax, 0x1
+   | mov rax, 0x1
    | jmp =>(maxpc+2)
    |=>1:
-   | mov eax, 0x0
+   | mov rax, 0x0
    |=>(maxpc + 2):
 
    -- fix stack
@@ -356,23 +378,34 @@ function selftest()
    end
 
    local savefile = require("pf.savefile")
-   pkts = savefile.load_packets("../tests/data/arp.pcap")
+   arp_pkts = savefile.load_packets("../tests/data/arp.pcap")
+   v4_pkts = savefile.load_packets("../tests/data/v4.pcap")
+   v6_pkts = savefile.load_packets("../tests/data/v6.pcap")
 
    local alloc_1 = { num_spilled = 0 }
 
    -- not an arp packet
-   assert(not test(example_1, pkts[1], alloc_1))
-   assert(not test(example_1, pkts[2], alloc_1))
+   assert(not test(example_1, arp_pkts[1], alloc_1))
+   assert(not test(example_1, arp_pkts[2], alloc_1))
    -- yay arp
-   assert(test(example_2, pkts[1], alloc_1))
-   assert(test(example_2, pkts[2], alloc_1))
+   assert(test(example_2, arp_pkts[1], alloc_1))
+   assert(test(example_2, arp_pkts[2], alloc_1))
 
-   --f = compile(example_3, { v1 = { spill = 1 },
-   --                         v2 = { spill = 2 },
-   --                         num_spilled = 2 })
    assert(not test(example_3,
-                   pkts[1],
+                   arp_pkts[1],
                    { v1 = { spill = 1 },
                      v2 = { spill = 2 },
                      num_spilled = 2 }))
+   assert(test(example_3,
+               -- this one is a TCP packet
+               v4_pkts[1],
+               { v1 = { spill = 1 },
+                 v2 = { spill = 2 },
+                 num_spilled = 2 }))
+   assert(test(example_3,
+               -- this one is also a TCP packet
+               v6_pkts[16],
+               { v1 = { spill = 1 },
+                 v2 = { spill = 2 },
+                 num_spilled = 2 }))
 end
