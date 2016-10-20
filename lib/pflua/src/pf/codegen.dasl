@@ -186,7 +186,8 @@ local function compile(ssa, alloc)
        local jmp_instr = jmp_types[cmp_op]
        local const = control[2][3]
 
-       local next_label = label_num(control[4])
+       -- TODO: abstract some of this label handling
+       local next_label = label_num(control[4]) + 1
 
        compile_cmp(Dst, control[2][2], const, alloc)
 
