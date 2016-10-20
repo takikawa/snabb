@@ -39,7 +39,7 @@ end
 
 -- extract a number from an SSA IR label
 function label_num(label)
-  return tonumber(string.match(label, "L(%d)"))
+  return tonumber(string.match(label, "L(%d+)"))
 end
 
 -- find the largest label number in the IR
@@ -192,7 +192,7 @@ local function compile(ssa, alloc)
        compile_cmp(Dst, control[2][2], const, alloc)
 
        -- TODO: this feels very hackish
-       if cmp_op == "==" then
+       if cmp_op == "=" then
          | jne =>(next_label)
        elseif cmp_op == ">=" then
          | jl =>(next_label)
