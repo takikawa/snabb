@@ -1,6 +1,18 @@
 -- Implements register allocation for pflua's native backend
 --
 -- Register allocation operates on a post-SSA pflua IR form.
+--
+-- The result of register allocation is a table mapping variables
+-- to registers. e.g.,
+--
+--   { v1 = "ecx", v2 = "edx", v3 = "spill"}
+--
+-- where a "spill" entry means to spill to the stack. This is
+-- used by the code generation pass.
+--
+-- We conduct a simple allocation in which variables
+-- have a single live range with no holes, which should work well
+-- since the IR is so constrained.
 
 module(...,package.seeall)
 
