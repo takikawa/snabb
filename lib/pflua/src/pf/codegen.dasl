@@ -58,11 +58,6 @@ function find_max_label(blocks)
   return max
 end
 
--- extract a number from a variable name
-function variable_num(var)
-  return tonumber(string.match(var, "v(%d)"))
-end
-
 -- compile an expression that appears in the argument position of a return
 function compile_expr(Dst, expr)
   local op = expr[1]
@@ -101,6 +96,32 @@ local function compile_cmp(Dst, var, const)
    end
 end
 
+-- generate a move from eax to the appropriate register
+-- TODO: for now we assume that only the caller-save
+--       registers rcx, rdx, r8-r11 are used
+local function compile_var_move(Dst, var, alloc)
+  local reg = alloc[var]
+
+  -- TODO: this hard-coded conditional is unfortunate
+  if type(reg) == "table" then
+    -- spill case
+    local offset = reg.spill * 32
+    | mov [rsp + offset], rax
+  elseif reg == "rcx" then
+    | mov rcx, rax
+  elseif reg == "rdx" then
+    | mov rdx, rax
+  elseif reg == "r8" then
+    | mov r8, rax
+  elseif reg == "r9" then
+    | mov r9, rax
+  elseif reg == "r10" then
+    | mov r10, rax
+  elseif reg == "r11" then
+    | mov r11, rax
+  end
+end
+
 local function compile(ssa, alloc)
    local Dst = dasm.new(actions)
    local blocks = ssa[3]
@@ -110,7 +131,13 @@ local function compile(ssa, alloc)
 
    -- number of =>(...) style labels
    local maxpc = find_max_label(blocks)
-   Dst:growpc(maxpc + 2)
+   Dst:growpc(maxpc + 3)
+
+   -- allocate space for all spilled vars
+   local spilled_space = alloc.num_spilled * 32
+   if spilled_space > 0 then
+     | sub rsp, spilled_space
+   end
 
    for i = 2, #blocks do
      local block = blocks[i]
@@ -123,13 +150,13 @@ local function compile(ssa, alloc)
 
      local bindings = block[blk_bindings]
 
-     -- TODO: use registers instead of stack slots
-     for _, binding in ipairs(bindings) do
+     for i=2, #bindings do
+       local binding = bindings[i]
        local var = binding[1]
        local expr = binding[2]
 
-       compile_expr(expr)
-       | push eax
+       compile_expr(Dst, expr)
+       compile_var_move(Dst, var, alloc)
      end
 
      if op == "if" then
@@ -170,9 +197,15 @@ local function compile(ssa, alloc)
    -- TODO: do this more cleverly
    |=>0:
    | mov eax, 0x1
-   | ret
+   | jmp =>(maxpc+2)
    |=>1:
    | mov eax, 0x0
+   |=>(maxpc + 2):
+
+   -- fix stack
+   if spilled_space > 0 then
+     | add rsp, spilled_space
+   end
    | ret
 
    local mcode, size = Dst:build()
@@ -325,10 +358,21 @@ function selftest()
    local savefile = require("pf.savefile")
    pkts = savefile.load_packets("../tests/data/arp.pcap")
 
+   local alloc_1 = { num_spilled = 0 }
+
    -- not an arp packet
-   assert(not test(example_1, pkts[1], {}))
-   assert(not test(example_1, pkts[2], {}))
+   assert(not test(example_1, pkts[1], alloc_1))
+   assert(not test(example_1, pkts[2], alloc_1))
    -- yay arp
-   assert(test(example_2, pkts[1], {}))
-   assert(test(example_2, pkts[2], {}))
+   assert(test(example_2, pkts[1], alloc_1))
+   assert(test(example_2, pkts[2], alloc_1))
+
+   --f = compile(example_3, { v1 = { spill = 1 },
+   --                         v2 = { spill = 2 },
+   --                         num_spilled = 2 })
+   assert(not test(example_3,
+                   pkts[1],
+                   { v1 = { spill = 1 },
+                     v2 = { spill = 2 },
+                     num_spilled = 2 }))
 end
