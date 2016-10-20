@@ -101,7 +101,7 @@ local function compile_cmp(Dst, var, const, alloc)
    -- TODO: this hard-coded conditional is unfortunate
    if type(reg) == "table" then
      -- spill case
-     local offset = reg.spill * 32
+     local offset = (reg.spill - 1) * 32
      | cmp dword [rsp + offset], const
    elseif reg == "rcx" then
      | cmp rcx, const
@@ -127,7 +127,7 @@ local function compile_var_move(Dst, var, alloc)
   -- TODO: this hard-coded conditional is unfortunate
   if type(reg) == "table" then
     -- spill case
-    local offset = reg.spill * 32
+    local offset = (reg.spill - 1) * 32
     | mov [rsp + offset], rax
   elseif reg == "rcx" then
     | mov rcx, rax
