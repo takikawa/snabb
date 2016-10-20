@@ -316,9 +316,9 @@ function selftest()
                { "bindings" },
                { "control", { "return", { "false" } } } } } }
 
-   local function test(ssa, pkt)
+   local function test(ssa, pkt, regalloc)
       -- Compile and then call native function on the given packet
-      local f = compile(ssa, {})
+      local f = compile(ssa, regalloc)
       return f(pkt.packet, pkt.len)
    end
 
@@ -326,9 +326,9 @@ function selftest()
    pkts = savefile.load_packets("../tests/data/arp.pcap")
 
    -- not an arp packet
-   assert(not test(example_1, pkts[1]))
-   assert(not test(example_1, pkts[2]))
+   assert(not test(example_1, pkts[1], {}))
+   assert(not test(example_1, pkts[2], {}))
    -- yay arp
-   assert(test(example_2, pkts[1]))
-   assert(test(example_2, pkts[2]))
+   assert(test(example_2, pkts[1], {}))
+   assert(test(example_2, pkts[2], {}))
 end
