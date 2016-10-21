@@ -148,9 +148,6 @@ local function compile(ssa, alloc)
    local Dst = dasm.new(actions)
    local blocks = ssa[3]
 
-   -- track the mapping of SSA block labels to asm labels
-   local label_map = {}
-
    -- number of =>(...) style labels
    local maxpc = find_max_label(blocks)
    Dst:growpc(maxpc + 3)
