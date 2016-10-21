@@ -3,13 +3,18 @@
 -- Register allocation operates on a post-SSA pflua IR form.
 --
 -- The result of register allocation is a table mapping variables
--- to registers. e.g.,
+-- to register numbers. e.g.,
 --
---   { v1 = "ecx", v2 = "edx", v3 = { spill = 0 }, num_spilled = 1 }
+--   { v1 = 1, -- %ecx
+--     v2 = 2, -- %edx
+--     v3 = { spill = 0 },
+--     num_spilled = 1 }
 --
 -- where a spill table entry means to spill to the stack at the
 -- given slot. The num_spilled entry indicates the number of spilled
 -- variables.
+--
+-- Register numbers are based on DynASM's Rq() register mapping.
 --
 -- We conduct a simple allocation in which variables
 -- have a single live range with no holes, which should work well

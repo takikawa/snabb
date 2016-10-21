@@ -98,49 +98,27 @@ local function compile_cmp(Dst, var, const, alloc)
 
    local reg = alloc[var]
 
-   -- TODO: this hard-coded conditional is unfortunate
    if type(reg) == "table" then
      -- spill case
      local offset = (reg.spill - 1) * 32
      | cmp dword [rsp + offset], const
-   elseif reg == "rcx" then
-     | cmp rcx, const
-   elseif reg == "rdx" then
-     | cmp rdx, const
-   elseif reg == "r8" then
-     | cmp r8, const
-   elseif reg == "r9" then
-     | cmp r9, const
-   elseif reg == "r10" then
-     | cmp r10, const
-   elseif reg == "r11" then
-     | cmp r11, const
+   else
+    local test = reg
+     | cmp Rq(0+test), const
    end
 end
 
 -- generate a move from rax to the appropriate register
--- TODO: for now we assume that only the caller-save
---       registers rcx, rdx, r8-r11 are used
 local function compile_var_move(Dst, var, alloc)
   local reg = alloc[var]
 
-  -- TODO: this hard-coded conditional is unfortunate
   if type(reg) == "table" then
     -- spill case
     local offset = (reg.spill - 1) * 32
     | mov [rsp + offset], rax
-  elseif reg == "rcx" then
-    | mov rcx, rax
-  elseif reg == "rdx" then
-    | mov rdx, rax
-  elseif reg == "r8" then
-    | mov r8, rax
-  elseif reg == "r9" then
-    | mov r9, rax
-  elseif reg == "r10" then
-    | mov r10, rax
-  elseif reg == "r11" then
-    | mov r11, rax
+  else
+    local test = reg
+    | mov Rq(0+test), rax
   end
 end
 
@@ -389,21 +367,24 @@ function selftest()
    assert(test(example_2, arp_pkts[1], alloc_1))
    assert(test(example_2, arp_pkts[2], alloc_1))
 
-   assert(not test(example_3,
-                   arp_pkts[1],
-                   { v1 = { spill = 1 },
-                     v2 = { spill = 2 },
-                     num_spilled = 2 }))
-   assert(test(example_3,
-               -- this one is a TCP packet
-               v4_pkts[1],
-               { v1 = { spill = 1 },
-                 v2 = { spill = 2 },
-                 num_spilled = 2 }))
-   assert(test(example_3,
-               -- this one is also a TCP packet
-               v6_pkts[16],
-               { v1 = { spill = 1 },
-                 v2 = { spill = 2 },
-                 num_spilled = 2 }))
+   local function test_3(alloc)
+     assert(not test(example_3,
+                     arp_pkts[1],
+                     alloc))
+     assert(test(example_3,
+                 -- this one is a TCP packet
+                 v4_pkts[1],
+                 alloc))
+     assert(test(example_3,
+                 -- this one is also a TCP packet
+                 v6_pkts[16],
+                 alloc))
+   end
+
+   test_3({ v1 = { spill = 1 },
+            v2 = { spill = 2 },
+            num_spilled = 2 })
+   test_3({ v1 = 1, -- %ecx
+            v2 = 2, -- %edx
+            num_spilled = 0 })
 end
