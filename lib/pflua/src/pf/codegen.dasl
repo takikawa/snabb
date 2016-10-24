@@ -385,4 +385,7 @@ function selftest()
    test_3({ v1 = 1, -- %ecx
             v2 = 2, -- %edx
             num_spilled = 0 })
+   test_3({ v1 = 8, -- %r8
+            v2 = 9, -- %r9
+            num_spilled = 0 })
 end
