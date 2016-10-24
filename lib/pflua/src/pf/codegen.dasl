@@ -84,6 +84,8 @@ function compile_expr(Dst, expr)
       else
          | mov eax, dword [edi + offset]
       end
+   else
+      error(string.format("NYI expr %s", op))
    end
 end
 
@@ -186,6 +188,8 @@ local function compile(ssa, alloc)
          else
             compile_expr(Dst, expr)
          end
+      else
+	 error(string.format("NYI op %s", op))
       end
    end
 
