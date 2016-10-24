@@ -30,61 +30,61 @@ local jmp_types =
 -- translate a variable occurrence into the appropriate
 -- register, perhaps consulting the register allocation
 function translate_variable(var)
-  if var == "P" then
-    return "edi"
-  elseif var == "len" then
-    return "esi"
-  end
+   if var == "P" then
+      return "edi"
+   elseif var == "len" then
+      return "esi"
+   end
 end
 
 -- extract a number from an SSA IR label
 function label_num(label)
-  return tonumber(string.match(label, "L(%d+)"))
+   return tonumber(string.match(label, "L(%d+)"))
 end
 
 -- find the largest label number in the IR
 function find_max_label(blocks)
-  local max = 1
+   local max = 1
 
-  for i = 2, #blocks do
-    local block = blocks[i]
-    local cur = label_num(block[blk_label][2])
+   for i = 2, #blocks do
+      local block = blocks[i]
+      local cur = label_num(block[blk_label][2])
 
-    if cur > max then
-      max = cur
-    end
-  end
+      if cur > max then
+         max = cur
+      end
+   end
 
-  return max
+   return max
 end
 
 -- compile an expression that appears in the argument position of a return
 function compile_expr(Dst, expr)
-  local op = expr[1]
+   local op = expr[1]
 
-  if op == "=" then
-    local lhs = expr[2]
-    local rhs = expr[3]
+   if op == "=" then
+      local lhs = expr[2]
+      local rhs = expr[3]
 
-    -- TODO: is it actually the case that rhs is always an immediate?
-    compile_expr(Dst, lhs)
+      -- TODO: is it actually the case that rhs is always an immediate?
+      compile_expr(Dst, lhs)
 
-    | cmp rax, rhs
-    | je =>0
-    | jmp =>1
-  elseif op == "[]" then
-    local offset = expr[2]
-    local bytes  = expr[3]
+      | cmp rax, rhs
+      | je =>0
+      | jmp =>1
+   elseif op == "[]" then
+      local offset = expr[2]
+      local bytes  = expr[3]
 
-    -- the "P" variable is in %edi since it's the first argument
-    if bytes == 1 then
-      | movzx eax, byte [edi + offset]
-    elseif bytes == 2 then
-      | movzx eax, word [edi + offset]
-    else
-      | mov eax, dword [edi + offset]
-    end
-  end
+      -- the "P" variable is in %edi since it's the first argument
+      if bytes == 1 then
+         | movzx eax, byte [edi + offset]
+      elseif bytes == 2 then
+         | movzx eax, word [edi + offset]
+      else
+         | mov eax, dword [edi + offset]
+      end
+   end
 end
 
 local function compile_cmp(Dst, var, const, alloc)
@@ -110,16 +110,16 @@ end
 
 -- generate a move from rax to the appropriate register
 local function compile_var_move(Dst, var, alloc)
-  local reg = alloc[var]
+   local reg = alloc[var]
 
-  if type(reg) == "table" then
-    -- spill case
-    local offset = (reg.spill - 1) * 32
-    | mov [rsp + offset], rax
-  else
-    local test = reg
-    | mov Rq(0+test), rax
-  end
+   if type(reg) == "table" then
+      -- spill case
+      local offset = (reg.spill - 1) * 32
+      | mov [rsp + offset], rax
+   else
+      local test = reg
+      | mov Rq(0+test), rax
+   end
 end
 
 local function compile(ssa, alloc)
@@ -133,62 +133,62 @@ local function compile(ssa, alloc)
    -- allocate space for all spilled vars
    local spilled_space = alloc.num_spilled * 32
    if spilled_space > 0 then
-     | sub rsp, spilled_space
+      | sub rsp, spilled_space
    end
 
    for i = 2, #blocks do
-     local block = blocks[i]
+      local block = blocks[i]
 
-     cur_label = label_num(block[blk_label][2]) + 1
-     |=>(cur_label):
+      cur_label = label_num(block[blk_label][2]) + 1
+      |=>(cur_label):
 
-     local control = block[blk_control][2]
-     local op = control[1]
+      local control = block[blk_control][2]
+      local op = control[1]
 
-     local bindings = block[blk_bindings]
+      local bindings = block[blk_bindings]
 
-     for i=2, #bindings do
-       local binding = bindings[i]
-       local var = binding[1]
-       local expr = binding[2]
+      for i=2, #bindings do
+         local binding = bindings[i]
+         local var = binding[1]
+         local expr = binding[2]
 
-       compile_expr(Dst, expr)
-       compile_var_move(Dst, var, alloc)
-     end
-
-     if op == "if" then
-       local cmp_op = control[2][1]
-       local jmp_instr = jmp_types[cmp_op]
-       local const = control[2][3]
-
-       -- TODO: abstract some of this label handling
-       local next_label = label_num(control[4]) + 1
-
-       compile_cmp(Dst, control[2][2], const, alloc)
-
-       -- TODO: this feels very hackish
-       if cmp_op == "=" then
-         | jne =>(next_label)
-       elseif cmp_op == ">=" then
-         | jl =>(next_label)
-       elseif cmp_op == "<=" then
-         | jg =>(next_label)
-       elseif cmp_op == ">" then
-         | jle =>(next_label)
-       elseif cmp_op == "<" then
-         | jge =>(next_label)
-       end
-     elseif op == "return" then
-       local expr = control[2]
-
-       if #expr == 1 and expr[1] == "true" then
-         | jmp =>0
-       elseif #expr == 1 and expr[1] == "false" then
-         | jmp =>1
-       else
          compile_expr(Dst, expr)
-       end
-     end
+         compile_var_move(Dst, var, alloc)
+      end
+
+      if op == "if" then
+         local cmp_op = control[2][1]
+         local jmp_instr = jmp_types[cmp_op]
+         local const = control[2][3]
+
+         -- TODO: abstract some of this label handling
+         local next_label = label_num(control[4]) + 1
+
+         compile_cmp(Dst, control[2][2], const, alloc)
+
+         -- TODO: this feels very hackish
+         if cmp_op == "=" then
+            | jne =>(next_label)
+         elseif cmp_op == ">=" then
+            | jl =>(next_label)
+         elseif cmp_op == "<=" then
+            | jg =>(next_label)
+         elseif cmp_op == ">" then
+            | jle =>(next_label)
+         elseif cmp_op == "<" then
+            | jge =>(next_label)
+         end
+      elseif op == "return" then
+         local expr = control[2]
+
+         if #expr == 1 and expr[1] == "true" then
+            | jmp =>0
+         elseif #expr == 1 and expr[1] == "false" then
+            | jmp =>1
+         else
+            compile_expr(Dst, expr)
+         end
+      end
    end
 
    -- return true, false
@@ -202,7 +202,7 @@ local function compile(ssa, alloc)
 
    -- fix stack
    if spilled_space > 0 then
-     | add rsp, spilled_space
+      | add rsp, spilled_space
    end
    | ret
 
@@ -368,17 +368,17 @@ function selftest()
    assert(test(example_2, arp_pkts[2], alloc_1))
 
    local function test_3(alloc)
-     assert(not test(example_3,
-                     arp_pkts[1],
-                     alloc))
-     assert(test(example_3,
-                 -- this one is a TCP packet
-                 v4_pkts[1],
-                 alloc))
-     assert(test(example_3,
-                 -- this one is also a TCP packet
-                 v6_pkts[16],
-                 alloc))
+      assert(not test(example_3,
+                      arp_pkts[1],
+                      alloc))
+      assert(test(example_3,
+                  -- this one is a TCP packet
+                  v4_pkts[1],
+                  alloc))
+      assert(test(example_3,
+                  -- this one is also a TCP packet
+                  v6_pkts[16],
+                  alloc))
    end
 
    test_3({ v1 = { spill = 1 },
