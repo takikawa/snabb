@@ -103,8 +103,7 @@ local function compile_cmp(Dst, var, const, alloc)
      local offset = (reg.spill - 1) * 32
      | cmp dword [rsp + offset], const
    else
-    local test = reg
-     | cmp Rq(0+test), const
+     | cmp Rq(reg), const
    end
 end
 
@@ -117,8 +116,7 @@ local function compile_var_move(Dst, var, alloc)
       local offset = (reg.spill - 1) * 32
       | mov [rsp + offset], rax
    else
-      local test = reg
-      | mov Rq(0+test), rax
+      | mov Rq(reg), rax
    end
 end
 
