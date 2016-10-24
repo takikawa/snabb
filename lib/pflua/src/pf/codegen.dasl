@@ -6,6 +6,8 @@ local C = ffi.C
 
 local dasm = require("dasm")
 
+local regalloc = require("pf.regalloc")
+
 |.arch x64
 |.actionlist actions
 
@@ -42,22 +44,6 @@ function label_num(label)
    return tonumber(string.match(label, "L(%d+)"))
 end
 
--- find the largest label number in the IR
-function find_max_label(blocks)
-   local max = 1
-
-   for i = 2, #blocks do
-      local block = blocks[i]
-      local cur = label_num(block[blk_label][2])
-
-      if cur > max then
-         max = cur
-      end
-   end
-
-   return max
-end
-
 -- compile an expression that appears in the argument position of a return
 function compile_expr(Dst, expr)
    local op = expr[1]
@@ -70,8 +56,8 @@ function compile_expr(Dst, expr)
       compile_expr(Dst, lhs)
 
       | cmp rax, rhs
-      | je =>0
-      | jmp =>1
+      | je >1
+      | jmp >2
    elseif op == "[]" then
       local offset = expr[2]
       local bytes  = expr[3]
@@ -122,13 +108,22 @@ local function compile_var_move(Dst, var, alloc)
    end
 end
 
-local function compile(ssa, alloc)
+local function compile(ssa, alloc, dump)
    local Dst = dasm.new(actions)
-   local blocks = ssa[3]
 
-   -- number of =>(...) style labels
-   local maxpc = find_max_label(blocks)
-   Dst:growpc(maxpc + 3)
+   -- number of =>(...) style labels, we need a maximum
+   -- of one per SSA block label plus a few special ones
+   local order = ssa.order
+   local maxpc = #order
+   local label_map = {}
+
+   Dst:growpc(maxpc)
+
+   -- map ir labels to pc labels
+   -- pc labels start at 0, so decrement
+   for idx, label in ipairs(order) do
+      label_map[label] = idx - 1
+   end
 
    -- allocate space for all spilled vars
    local spilled_space = alloc.num_spilled * 32
@@ -136,24 +131,20 @@ local function compile(ssa, alloc)
       | sub rsp, spilled_space
    end
 
-   for i = 2, #blocks do
-      local block = blocks[i]
+   local blocks = ssa.blocks
+   for _, label in ipairs(order) do
+      local block = blocks[label]
 
-      cur_label = label_num(block[blk_label][2]) + 1
+      cur_label = label_map[label]
       |=>(cur_label):
 
-      local control = block[blk_control][2]
+      local control = block.control
+      local bindings = block.bindings
       local op = control[1]
 
-      local bindings = block[blk_bindings]
-
-      for i=2, #bindings do
-         local binding = bindings[i]
-         local var = binding[1]
-         local expr = binding[2]
-
-         compile_expr(Dst, expr)
-         compile_var_move(Dst, var, alloc)
+      for _, binding in ipairs(bindings) do
+         compile_expr(Dst, binding.value)
+         compile_var_move(Dst, binding.name, alloc)
       end
 
       if op == "if" then
@@ -162,7 +153,7 @@ local function compile(ssa, alloc)
          local const = control[2][3]
 
          -- TODO: abstract some of this label handling
-         local next_label = label_num(control[4]) + 1
+         local next_label = label_map[control[4]]
 
          compile_cmp(Dst, control[2][2], const, alloc)
 
@@ -182,9 +173,9 @@ local function compile(ssa, alloc)
          local expr = control[2]
 
          if #expr == 1 and expr[1] == "true" then
-            | jmp =>0
+            | jmp >1
          elseif #expr == 1 and expr[1] == "false" then
-            | jmp =>1
+            | jmp >2
          else
             compile_expr(Dst, expr)
          end
@@ -195,12 +186,12 @@ local function compile(ssa, alloc)
 
    -- return true, false
    -- TODO: do this more cleverly
-   |=>0:
+   |1:
    | mov rax, 0x1
-   | jmp =>(maxpc+2)
-   |=>1:
+   | jmp >3
+   |2:
    | mov rax, 0x0
-   |=>(maxpc + 2):
+   |3:
 
    -- fix stack
    if spilled_space > 0 then
@@ -211,7 +202,7 @@ local function compile(ssa, alloc)
    local mcode, size = Dst:build()
    table.insert(anchor, mcode)
 
-   if debug then
+   if dump or debug then
       print("mcode dump:")
       dasm.dump(mcode, size)
    end
@@ -220,136 +211,97 @@ local function compile(ssa, alloc)
                    mcode)
 end
 
+function load(ssa, dump)
+   local alloc = regalloc.allocate_registers(ssa)
+   local fun = compile(ssa, alloc, dump)
+
+   return fun
+end
+
 function selftest()
    local ra = require("pf.regalloc")
 
-   local max_label_example_1 =
-      { "blocks",
-        { "block",
-          { "label", "L1" }, },
-        { "block",
-          { "label", "L4" }, },
-        { "block",
-          { "label", "L5" }, } }
-
-   assert(find_max_label(max_label_example_1) == 5)
-
    -- `ip`
    local example_1 =
-      { "ssa",
-         { "start", "L1" },
-         { "blocks",
-            { "block",
-               { "label", "L1" },
-               { "bindings" },
-               { "control",
-                  { "if", { ">=", "len", 14 }, "L4", "L5" } } },
-            { "block",
-               { "label", "L4" },
-               { "bindings" },
-               { "control",
-                  { "return",
-                     { "=", { "[]", 12, 2 }, 8 } } } },
-            { "block",
-               { "label", "L5" },
-               { "bindings" },
-               { "control", { "return", { "false" } } } } } }
+      { start = "L1",
+	order = { "L1", "L4", "L5" },
+	blocks =
+	   { L1 = { label = "L1",
+		    bindings = {},
+		    control = { "if", { ">=", "len", 14 }, "L4", "L5" } },
+	     L4 = { label = "L4",
+		    bindings = {},
+		    control = { "return", { "=", { "[]", 12, 2 }, 8 } } },
+	     L5 = { label = "L5",
+		    bindings = {},
+		    control = { "return", { "false" } } } } }
 
    -- `arp`
    local example_2 =
-      { "ssa",
-         { "start", "L1" },
-         { "blocks",
-            { "block",
-               { "label", "L1" },
-               { "bindings" },
-               { "control",
-                  { "if", { ">=", "len", 14 }, "L4", "L5" } } },
-            { "block",
-               { "label", "L4" },
-               { "bindings" },
-               { "control",
-                  { "return", { "=", { "[]", 12, 2 }, 1544 } } } },
-            { "block",
-               { "label", "L5" },
-               { "bindings" },
-               { "control", { "return", { "false" } } } } } }
+      { start = "L1",
+	order = { "L1", "L4", "L5" },
+	blocks =
+	   { L1 = { label = "L1",
+		    bindings = {},
+		    control = { "if", { ">=", "len", 14 }, "L4", "L5" } },
+	     L4 = { label = "L4",
+		    bindings = {},
+		    control = { "return", { "=", { "[]", 12, 2 }, 1544 } } },
+	     L5 = { label = "L5",
+		    bindings = {},
+		    control = { "return", { "false" } } } } }
 
+   -- `tcp`
    local example_3 =
-      { "ssa",
-         { "start", "L1" },
-         { "blocks",
-            { "block",
-               { "label", "L1" },
-               { "bindings" },
-               { "control",
-                  { "if", { ">=", "len", 34 }, "L4", "L5" } } },
-            { "block",
-               { "label", "L4" },
-               { "bindings",
-                  { "v1", { "[]", 12, 2 } } },
-               { "control",
-                  { "if", { "=", "v1", 8 }, "L6", "L7" } } },
-            { "block",
-               { "label", "L6" },
-               { "bindings" },
-               { "control",
-                  { "return", { "=", { "[]", 23, 1 }, 6 } } } },
-            { "block",
-               { "label", "L7" },
-               { "bindings" },
-               { "control",
-                  { "if", { ">=", "len", 54 }, "L8", "L9" } } },
-            { "block",
-               { "label", "L8" },
-               { "bindings" },
-               { "control",
-                  { "if", { "=", "v1", 56710 }, "L10", "L11" } } },
-            { "block",
-               { "label", "L10" },
-               { "bindings",
-                  { "v2", { "[]", 20, 1 } } },
-               { "control",
-                  { "if", { "=", "v2", 6 }, "L12", "L13" } } },
-            { "block",
-               { "label", "L12" },
-               { "bindings" },
-               { "control", { "return", { "true" } } } },
-            { "block",
-               { "label", "L13" },
-               { "bindings" },
-               { "control",
-                 { "if", { ">=", "len", 55 }, "L14", "L15" } } },
-            { "block",
-               { "label", "L14" },
-               { "bindings" },
-               { "control",
-                 { "if", { "=", "v2", 44 }, "L16", "L17" } } },
-            { "block",
-               { "label", "L16" },
-               { "bindings" },
-               { "control",
-                  { "return", { "=", { "[]", 54, 1 }, 6 } } } },
-            { "block",
-               { "label", "L17" },
-               { "bindings" },
-               { "control", { "return", { "false" } } } },
-            { "block",
-               { "label", "L15" },
-               { "bindings" },
-               { "control", { "return", { "false" } } } },
-            { "block",
-               { "label", "L11" },
-               { "bindings" },
-               { "control", { "return", { "false" } } } },
-            { "block",
-               { "label", "L9" },
-               { "bindings" },
-               { "control", { "return", { "false" } } } },
-            { "block",
-               { "label", "L5" },
-               { "bindings" },
-               { "control", { "return", { "false" } } } } } }
+      { start = "L1",
+	order = { "L1", "L4", "L6", "L7", "L8", "L10", "L12", "L13",
+		  "L14", "L16", "L17", "L15", "L11", "L9", "L5" },
+	blocks =
+	   { L1 = { label = "L1",
+	            bindings = {},
+	            control = { "if", { ">=", "len", 34 }, "L4", "L5" } },
+	     L4 = { label = "L4",
+	            bindings = { { name = "v1", value = { "[]", 12, 2 } } },
+	            control = { "if", { "=", "v1", 8 }, "L6", "L7" } },
+	     L6 = { label = "L6",
+	            bindings = {},
+	            control = { "return", { "=", { "[]", 23, 1 }, 6 } } },
+	     L7 = { label = "L7",
+	            bindings = {},
+	            control = { "if", { ">=", "len", 54 }, "L8", "L9" } },
+	     L8 = { label = "L8",
+	            bindings = {},
+	            control = { "if", { "=", "v1", 56710 }, "L10", "L11" } },
+	     L10 = { label = "L10",
+	             bindings = { { name = "v2", value = { "[]", 20, 1 } } },
+	             control = { "if", { "=", "v2", 6 }, "L12", "L13" } },
+	     L12 = { label = "L12",
+	             bindings = {},
+	             control = { "return", { "true" } } },
+	     L13 = { label = "L13",
+	             bindings = {},
+	             control = { "if", { ">=", "len", 55 }, "L14", "L15" } },
+	     L14 = { label = "L14",
+	             bindings = {},
+	             control = { "if", { "=", "v2", 44 }, "L16", "L17" } },
+	     L16 = { label = "L16",
+	             bindings = {},
+	             control = { "return", { "=", { "[]", 54, 1 }, 6 } } },
+	     L17 = { label = "L17",
+	             bindings = {},
+	             control = { "return", { "false" } } },
+	     L15 = { label = "L15",
+	             bindings = {},
+	             control = { "return", { "false" } } },
+	     L11 = { label = "L11",
+	             bindings = {},
+	             control = { "return", { "false" } } },
+	     L9 = { label = "L9",
+	            bindings = {},
+	            control = { "return", { "false" } } },
+	     L5 = { label = "L5",
+	            bindings = {},
+	            control = { "return", { "false" } } } } }
 
    local function test(ssa, pkt, regalloc)
       -- Compile and then call native function on the given packet
