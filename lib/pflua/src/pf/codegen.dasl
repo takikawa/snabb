@@ -217,6 +217,8 @@ local function compile(ssa, alloc)
 end
 
 function selftest()
+   local ra = require("pf.regalloc")
+
    local max_label_example_1 =
       { "blocks",
         { "block",
@@ -361,6 +363,7 @@ function selftest()
    -- not an arp packet
    assert(not test(example_1, arp_pkts[1], alloc_1))
    assert(not test(example_1, arp_pkts[2], alloc_1))
+   assert(not test(example_1, arp_pkts[2], ra.allocate_registers(example_1)))
    -- yay arp
    assert(test(example_2, arp_pkts[1], alloc_1))
    assert(test(example_2, arp_pkts[2], alloc_1))
@@ -388,4 +391,5 @@ function selftest()
    test_3({ v1 = 8, -- %r8
             v2 = 9, -- %r9
             num_spilled = 0 })
+   test_3(ra.allocate_registers(example_3))
 end

@@ -82,6 +82,21 @@ local function compute_live_intervals(ssa)
    return live_intervals
 end
 
+-- Do register allocation with the given IR
+function allocate_registers(ssa)
+   local intervals = compute_live_intervals(ssa)
+   local allocation = {}
+
+   -- TODO: for now, spill all variables
+   for idx, interval in ipairs(intervals) do
+      allocation[interval.name] = { spill = idx - 1 }
+   end
+
+   allocation.num_spilled = #intervals
+
+   return allocation
+end
+
 function selftest()
    -- "ip"
    local example_1 =
