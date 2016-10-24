@@ -5,8 +5,8 @@
 -- The result of register allocation is a table mapping variables
 -- to register numbers. e.g.,
 --
---   { v1 = 1, -- %ecx
---     v2 = 2, -- %edx
+--   { v1 = 1, -- %rcx
+--     v2 = 2, -- %rdx
 --     v3 = { spill = 0 },
 --     num_spilled = 1 }
 --
@@ -15,6 +15,17 @@
 -- variables.
 --
 -- Register numbers are based on DynASM's Rq() register mapping.
+--
+-- The following registers are reserved and not allocated:
+--   * %rax for arithmetic expression computations
+--   * %rdi to store the packet pointer argument
+--   * %rsi to store the length argument
+--
+-- The allocator should first prioritize using caller-save registers
+--   * %rcx, %rdx, %r8-%r11
+--
+-- before using callee-save registers
+--   * %rbx, %r12-%r15
 --
 -- We conduct a simple allocation in which variables
 -- have a single live range with no holes, which should work well
