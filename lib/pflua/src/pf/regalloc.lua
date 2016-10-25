@@ -7,12 +7,16 @@
 -- for all variables in each basic block.
 --
 --   { num_spilled = 1
---     L4 = { v1 = 1, -- %rcx
---            v2 = 2, -- %rdx
---            v3 = { spill = 0 },
+--     v1 = 1, -- %rcx
+--     v2 = 2, -- %rdx
+--     v3 = { spill = 0 },
+--     L4 = {
 --            r1 = 0, -- %rax
 --            r2 = 8, -- %r8
 --          } }
+--
+-- The tables for each block have a metatable set to look up in
+-- the outer table for v? variables.
 --
 -- Register numbers are based on DynASM's Rq() register mapping.
 --

@@ -38,6 +38,7 @@ function lower_exprs(block)
    end
 
    local function simplify(expr, bindings)
+      local utils = require("pf.utils")
       if type(expr) == "string" then
          return expr
       elseif type(expr) == "number" or expr[1] == "[]" then
@@ -91,19 +92,28 @@ function lower_exprs(block)
 
    local lhs = rel_expr[2]
    local rhs = rel_expr[3]
+   local new_lhs, new_rhs
 
-   local new_lhs = simplify(lhs, bindings)
-   local reg = new_register()
-   table.insert(bindings, { name = reg, value = new_lhs })
-   new_lhs = reg
+   if type(lhs) == "string" then
+      new_lhs = lhs
+   else
+     new_lhs = simplify(lhs, bindings)
+     if type(new_lhs) == "table" then
+        reg = new_register()
+        table.insert(bindings, { name = reg, value = new_lhs })
+        new_lhs = reg
+     end
+   end
 
    if type(rhs) == "number" then
       new_rhs = rhs
    else
       new_rhs = simplify(rhs, bindings)
-      reg = new_register()
-      table.insert(bindings, { name = reg, value = new_rhs })
-      new_rhs = reg
+      if type(new_rhs) == "table" then
+         reg = new_register()
+         table.insert(bindings, { name = reg, value = new_rhs })
+         new_rhs = reg
+      end
    end
 
    if control[1] == "return" then
@@ -120,8 +130,14 @@ end
 function lower(ssa)
    local blocks = ssa.blocks
 
-   for _, label in ssa.order do
-      lower_exprs(blocks[label])
+   for _, label in pairs(ssa.order) do
+      local block   = blocks[label]
+      local control = block.control
+
+      if ((control[1] == "return" and #control[2] > 1)
+          or control[1] == "if") then
+         lower_exprs(block)
+      end
    end
 end
 
@@ -133,8 +149,21 @@ function selftest()
    local function test(block, expected)
       lower_exprs(block)
       utils.assert_equals(block.control, expected.control)
-      utils.assert_equals(block.bindings, expected.bindings)
+      assert(#block.bindings == #expected.bindings)
    end
+
+   test({ label = "L1",
+          bindings = {},
+          control = { "if", { ">=", "len", 14 }, "L4", "L5" } },
+        { label = "L1",
+          bindings = {},
+          control = { "if", { ">=", "len", 14 }, "L4", "L5" } })
+   test({ label = "L4",
+          bindings = {},
+          control = { "return", { "=", { "[]", 12, 2 }, 1544 } } },
+        { label = "L4",
+          bindings = { { name = "r1", value = { "[]", 12, 2 } } },
+          control = { "return", { "=", "r1", 1544 } } })
 
    test({ label = "L2",
           bindings = {},
