@@ -2,21 +2,17 @@
 --
 -- Register allocation operates on a post-SSA pflua IR form.
 --
--- The result of register allocation is a table mapping variables
--- to register numbers. There are also sub-tables mapping block-local
--- variables to registers for each relevant block label. e.g.,
+-- The result of register allocation is a table that describes
+-- the max spills/number of stack slots needed and the registers
+-- for all variables in each basic block.
 --
---   { v1 = 1, -- %rcx
---     v2 = 2, -- %rdx
---     v3 = { spill = 0 },
---     num_spilled = 1
---     L4 = { r1 = 0, -- %rax
+--   { num_spilled = 1
+--     L4 = { v1 = 1, -- %rcx
+--            v2 = 2, -- %rdx
+--            v3 = { spill = 0 },
+--            r1 = 0, -- %rax
 --            r2 = 8, -- %r8
 --          } }
---
--- where a spill table entry means to spill to the stack at the
--- given slot. The num_spilled entry indicates the max number
--- of spilled variables and hence stack slots needed.
 --
 -- Register numbers are based on DynASM's Rq() register mapping.
 --
@@ -29,10 +25,6 @@
 --
 -- before using callee-save registers
 --   * %rbx, %r12-%r15
---
--- We conduct a simple allocation in which variables
--- have a single live range with no holes, which should work well
--- since the IR is so constrained.
 
 module(...,package.seeall)
 
@@ -89,8 +81,9 @@ end
 -- Do instruction selection on arithmetic and boolean
 -- expressions in order to convert them into straight-line code
 --
--- Only call this on blocks with a { "return", { rel_op ... } }
--- control AST.
+-- Only call this on blocks with one of the following forms:
+--   * { "return", { rel_op ... } }
+--   * { "if", { rel_op ...}, ... }
 --
 -- Returns a new list of bindings to merge and a new control AST
 -- with lower-level arithmetic pseudo-instructions
@@ -100,7 +93,8 @@ end
 -- the block and thus don't follow the SSA structure
 -- (i.e., they are not unique across blocks).
 function simplify_exprs(block)
-   local rel_expr = block.control[2]
+   local control  = block.control
+   local rel_expr = control[2]
    local bindings = block.bindings
 
    local reg_num = 1
@@ -155,7 +149,7 @@ function simplify_exprs(block)
          return { "*", expr2, expr3 }
 
       -- generic addition
-      elseif expr[1] == "*" then
+      elseif expr[1] == "+" then
          local expr2 = simplify(expr[2], bindings)
          local expr3 = simplify(expr[3], bindings)
          return { "+", expr2, expr3 }
@@ -179,20 +173,31 @@ function simplify_exprs(block)
       new_rhs = reg
    end
 
-   block.control = { "return", { rel_expr[1], new_lhs, new_rhs } }
+   if control[1] == "return" then
+      block.control = { "return", { rel_expr[1], new_lhs, new_rhs } }
+   else -- "if"
+      block.control =
+         { "if",
+           { rel_expr[1], new_lhs, new_rhs },
+           control[3],
+           control[4] }
+   end
 end
 
 -- Do register allocation with the given IR
 function allocate_registers(ssa)
    local intervals = compute_live_intervals(ssa)
-   local allocation = {}
+   local allocation = { num_spilled = #intervals }
+   local spills = {}
 
    -- TODO: for now, spill all variables
    for idx, interval in ipairs(intervals) do
-      allocation[interval.name] = { spill = idx - 1 }
+      spills[interval.name] = { spill = idx - 1 }
    end
 
-   allocation.num_spilled = #intervals
+   for _, label in ssa.order do
+      allocation[label] = spills
+   end
 
    return allocation
 end
@@ -228,13 +233,43 @@ function selftest()
 
    test({ label = "L2",
           bindings = {},
-          control = { "return",
-                       { "=", { "*", { "[]", 12, 2 }, { "[]", 14, 2 } }, 1 } } },
+          control = { "return", { "=", { "*", { "[]", 12, 2 }, { "[]", 14, 2 } }, 1 } } },
         { label = "L2",
           bindings = { { name = "r1", value = { "[]", 12, 2 } },
                        { name = "r2", value = { "[]", 14, 2 } },
                        { name = "r3", value = { "*", "r1", "r2" } } },
           control = { "return", { "=", "r3", 1 } } })
+
+   test({ label = "L2",
+          bindings = {},
+          control = { "if",
+                      { "=", { "+", { "[]", 12, 2 }, 5 }, 1 },
+                      "L4", "L5" } },
+        { label = "L2",
+          bindings = { { name = "r1", value = { "[]", 12, 2 } },
+                       { name = "r2", value = { "+const", "r1", 5 } } },
+          control = { "if", { "=", "r2", 1 }, "L4", "L5" } })
+
+   test({ label = "L2",
+          bindings = {},
+          control = { "if",
+                      { "=", { "*", { "[]", 12, 2 }, 5 }, 1 },
+                      "L4", "L5" } },
+        { label = "L2",
+          bindings = { { name = "r1", value = { "[]", 12, 2 } },
+                       { name = "r2", value = { "*const", "r1", 5 } } },
+          control = { "if", { "=", "r2", 1 }, "L4", "L5" } })
+
+   test({ label = "L2",
+          bindings = {},
+          control = { "if",
+                      { "=", { "*", { "[]", 12, 2 }, { "[]", 14, 2 } }, 1 },
+                      "L4", "L5" } },
+        { label = "L2",
+          bindings = { { name = "r1", value = { "[]", 12, 2 } },
+                       { name = "r2", value = { "[]", 14, 2 } },
+                       { name = "r3", value = { "*", "r1", "r2" } } },
+          control = { "if", { "=", "r3", 1 }, "L4", "L5" } })
 
    -- "ip"
    local example_1 =
