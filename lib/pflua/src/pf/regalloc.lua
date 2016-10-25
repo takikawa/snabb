@@ -3,26 +3,29 @@
 -- Register allocation operates on a post-SSA pflua IR form.
 --
 -- The result of register allocation is a table mapping variables
--- to register numbers. e.g.,
+-- to register numbers. There are also sub-tables mapping block-local
+-- variables to registers for each relevant block label. e.g.,
 --
 --   { v1 = 1, -- %rcx
 --     v2 = 2, -- %rdx
 --     v3 = { spill = 0 },
---     num_spilled = 1 }
+--     num_spilled = 1
+--     L4 = { r1 = 0, -- %rax
+--            r2 = 8, -- %r8
+--          } }
 --
 -- where a spill table entry means to spill to the stack at the
--- given slot. The num_spilled entry indicates the number of spilled
--- variables.
+-- given slot. The num_spilled entry indicates the max number
+-- of spilled variables and hence stack slots needed.
 --
 -- Register numbers are based on DynASM's Rq() register mapping.
 --
 -- The following registers are reserved and not allocated:
---   * %rax for arithmetic expression computations
 --   * %rdi to store the packet pointer argument
 --   * %rsi to store the length argument
 --
 -- The allocator should first prioritize using caller-save registers
---   * %rcx, %rdx, %r8-%r11
+--   * %rax, %rcx, %rdx, %r8-%r11
 --
 -- before using callee-save registers
 --   * %rbx, %r12-%r15
@@ -83,6 +86,102 @@ local function compute_live_intervals(ssa)
    return live_intervals
 end
 
+-- Do instruction selection on arithmetic and boolean
+-- expressions in order to convert them into straight-line code
+--
+-- Only call this on blocks with a { "return", { rel_op ... } }
+-- control AST.
+--
+-- Returns a new list of bindings to merge and a new control AST
+-- with lower-level arithmetic pseudo-instructions
+--
+-- New bindings are given names prefixed with "r" as in "r1"
+-- since they are pseudo-registers. These bindings are local to
+-- the block and thus don't follow the SSA structure
+-- (i.e., they are not unique across blocks).
+function simplify_exprs(block)
+   local rel_expr = block.control[2]
+   local bindings = block.bindings
+
+   local reg_num = 1
+   local function new_register()
+      local new_var = string.format("r%d", reg_num)
+      reg_num = reg_num + 1
+      return new_var
+   end
+
+   local function simplify(expr, bindings)
+      if type(expr) == "string" then
+         return expr
+      elseif type(expr) == "number" or expr[1] == "[]" then
+         local reg = new_register()
+         table.insert(bindings, { name = reg, value = expr })
+         return reg
+
+      -- three register addition
+      elseif (expr[1] == "+" and type(expr[2]) == "table" and
+              expr[2][1] == "+") then
+         local expr1 = simplify(expr[2][2], bindings)
+         local expr2 = simplify(expr[2][3], bindings)
+         local expr3 = simplify(expr[3], bindings)
+         return { "+3", expr1, expr2, expr3 }
+      elseif (expr[1] == "+" and type(expr[3]) == "table" and
+              expr[3][1] == "+") then
+         local expr1 = simplify(expr[3][2], bindings)
+         local expr2 = simplify(expr[3][3], bindings)
+         local expr3 = simplify(expr[2], bindings)
+         return { "+3", expr1, expr2, expr3 }
+
+      -- addition with immediate
+      elseif expr[1] == "+" and type(expr[2]) == "number" then
+         local expr3 = simplify(expr[3], bindings)
+         return { "+const", expr3, expr[2] }
+      elseif expr[1] == "+" and type(expr[3]) == "number" then
+         local expr2 = simplify(expr[2], bindings)
+         return { "+const", expr2, expr[3] }
+
+      -- multiplication with constant
+      elseif expr[1] == "*" and type(expr[2]) == "number" then
+         local expr3 = simplify(expr[3], bindings)
+         return { "*const", expr3, expr[2] }
+      elseif expr[1] == "*" and type(expr[3]) == "number" then
+         local expr2 = simplify(expr[2], bindings)
+         return { "*const", expr2, expr[3] }
+
+      -- generic multiplication
+      elseif expr[1] == "*" then
+         local expr2 = simplify(expr[2], bindings)
+         local expr3 = simplify(expr[3], bindings)
+         return { "*", expr2, expr3 }
+
+      -- generic addition
+      elseif expr[1] == "*" then
+         local expr2 = simplify(expr[2], bindings)
+         local expr3 = simplify(expr[3], bindings)
+         return { "+", expr2, expr3 }
+      end
+   end
+
+   local lhs = rel_expr[2]
+   local rhs = rel_expr[3]
+
+   local new_lhs = simplify(lhs, bindings)
+   local reg = new_register()
+   table.insert(bindings, { name = reg, value = new_lhs })
+   new_lhs = reg
+
+   if type(rhs) == "number" then
+      new_rhs = rhs
+   else
+      new_rhs = simplify(rhs, bindings)
+      reg = new_register()
+      table.insert(bindings, { name = reg, value = new_rhs })
+      new_rhs = reg
+   end
+
+   block.control = { "return", { rel_expr[1], new_lhs, new_rhs } }
+end
+
 -- Do register allocation with the given IR
 function allocate_registers(ssa)
    local intervals = compute_live_intervals(ssa)
@@ -99,6 +198,44 @@ function allocate_registers(ssa)
 end
 
 function selftest()
+   local utils = require("pf.utils")
+
+   -- tests of simplification/instruction selection pass on arithmetic
+   -- and boolean expressions
+   local function test(block, expected)
+      simplify_exprs(block)
+      utils.assert_equals(block.control, expected.control)
+      utils.assert_equals(block.bindings, expected.bindings)
+   end
+
+   test({ label = "L2",
+          bindings = {},
+          control = { "return",
+                       { "=", { "+", { "[]", 12, 2 }, 5 }, 1 } } },
+        { label = "L2",
+          bindings = { { name = "r1", value = { "[]", 12, 2 } },
+                       { name = "r2", value = { "+const", "r1", 5 } } },
+          control = { "return", { "=", "r2", 1 } } })
+
+   test({ label = "L2",
+          bindings = {},
+          control = { "return",
+                       { "=", { "*", { "[]", 12, 2 }, 5 }, 1 } } },
+        { label = "L2",
+          bindings = { { name = "r1", value = { "[]", 12, 2 } },
+                       { name = "r2", value = { "*const", "r1", 5 } } },
+          control = { "return", { "=", "r2", 1 } } })
+
+   test({ label = "L2",
+          bindings = {},
+          control = { "return",
+                       { "=", { "*", { "[]", 12, 2 }, { "[]", 14, 2 } }, 1 } } },
+        { label = "L2",
+          bindings = { { name = "r1", value = { "[]", 12, 2 } },
+                       { name = "r2", value = { "[]", 14, 2 } },
+                       { name = "r3", value = { "*", "r1", "r2" } } },
+          control = { "return", { "=", "r3", 1 } } })
+
    -- "ip"
    local example_1 =
       { start = "L1",
@@ -168,7 +305,6 @@ function selftest()
 	            control = { "return", { "false" } } } } }
 
    local intervals_2 = compute_live_intervals(example_2)
-   print(#intervals_2)
    assert(#intervals_2 == 2)
    assert(intervals_2[1].name == "v1")
    assert(intervals_2[1].start == "L4")
