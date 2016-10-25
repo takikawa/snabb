@@ -16,10 +16,6 @@ local anchor = {}
 
 local debug = true
 
-local blk_label    = 2
-local blk_bindings = 3
-local blk_control  = 4
-
 -- Note that we always negate the condition because the ordering
 -- of the SSA IR puts the true branch first
 local jmp_types =
