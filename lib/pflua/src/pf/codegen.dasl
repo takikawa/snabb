@@ -42,9 +42,6 @@ function compile_relop(Dst, expr, alloc)
       local rhs_reg = alloc[rhs]
       | cmp Rq(lhs_reg), Rq(rhs_reg)
    end
-
-   | je >1
-   | jmp >2
 end
 
 -- compile an arithmetic expression
@@ -154,28 +151,28 @@ local function compile_jmp(Dst, expr, if_next)
 
    -- TODO: simplify this, maybe by using a runtime
    --       label for the return case
-   if for_if then
-     if cmp_op == "=" then
-        | jne =>(next)
-     elseif cmp_op == ">=" then
-        | jl  =>(next)
-     elseif cmp_op == "<=" then
-        | jg  =>(next)
-     elseif cmp_op == ">" then
-        | jle =>(next)
-     elseif cmp_op == "<" then
-        | jge =>(next)
+   if if_next then
+     if op == "=" then
+        | jne =>(if_next)
+     elseif op == ">=" then
+        | jl  =>(if_next)
+     elseif op == "<=" then
+        | jg  =>(if_next)
+     elseif op == ">" then
+        | jle =>(if_next)
+     elseif op == "<" then
+        | jge =>(if_next)
      end
    else
-     if cmp_op == "=" then
+     if op == "=" then
         | jne >1
-     elseif cmp_op == ">=" then
+     elseif op == ">=" then
         | jl  >1
-     elseif cmp_op == "<=" then
+     elseif op == "<=" then
         | jg  >1
-     elseif cmp_op == ">" then
+     elseif op == ">" then
         | jle >1
-     elseif cmp_op == "<" then
+     elseif op == "<" then
         | jge >1
      end
    end
