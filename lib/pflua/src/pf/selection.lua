@@ -164,6 +164,8 @@ function select(ssa)
 
       select_block(block, new_register, instructions)
    end
+
+   return instructions
 end
 
 function selftest()
