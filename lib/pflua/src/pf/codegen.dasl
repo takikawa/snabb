@@ -364,6 +364,29 @@ function selftest()
 	            bindings = {},
 	            control = { "return", { "false" } } } } }
 
+   -- `ip[1] + ip[2] + ip[3] == 1`
+   example_4 =
+      { start = "L1",
+        order = { "L1", "L4", "L6", "L7", "L5" },
+        blocks =
+           { L1 = { label = "L1",
+                    bindings = {},
+                    control = { "if", { ">=", "len", 34 }, "L4", "L5" } },
+             L4 = { label = "L4",
+                    bindings = {},
+                    control = { "if", { "=", { "[]", 12, 2 }, 8 }, "L6", "L7" } },
+             L6 = { label = "L6",
+                    bindings = {},
+		    control = { "return",
+                                { "=", { "+", { "+", { "[]", 15, 1 }, { "[]", 16, 1 } },
+                                         { "[]", 17, 1 } }, 1 } } },
+             L7 = { label = "L7",
+                    bindings = {},
+                    control = { "return", { "false" } } },
+             L5 = { label = "L5",
+                    bindings = {},
+                    control = { "return", { "false" } } } } }
+
    local function test(ssa, pkt, regalloc)
       -- Compile and then call native function on the given packet
       is.lower(ssa)
@@ -394,7 +417,7 @@ function selftest()
    v4_pkts = savefile.load_packets("../tests/data/v4.pcap")
    v6_pkts = savefile.load_packets("../tests/data/v6.pcap")
 
-   local rax, rsi, rdi = 0, 6, 7
+   local rax, rcx, rdx, rsi, rdi = 0, 1, 2, 6, 7
    local alloc_1 = { num_spilled = 0,
                      len = rsi,
                      P = rdi,
@@ -435,11 +458,22 @@ function selftest()
    --test_3({ v1 = { spill = 1 },
    --         v2 = { spill = 2 },
    --         num_spilled = 2 })
-   alloc_3.v1 = 1 -- %rcx
-   alloc_3.v2 = 2 -- %rdx
+   alloc_3.v1 = rcx -- %rcx
+   alloc_3.v2 = rdx -- %rdx
    test_3()
 
    alloc_3.v1 = 8 -- %r8
    alloc_3.v2 = 9 -- %r9
    test_3()
+
+   local alloc_4 = { num_spilled = 0,
+                     len = rsi,
+                     P = rdi,
+		     L4 = { r1 = rax },
+                     L6 = { r1 = rax,
+                            r2 = rcx,
+                            r3 = rdx,
+                            r4 = rax } }
+   fix_ra(example_4, alloc_4)
+   test(example_4, arp_pkts[1], alloc_4)
 end
