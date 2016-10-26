@@ -6,15 +6,15 @@
 --
 -- This generates an array of pseudo-instructions like this:
 --
---   { { "mov", "r1", "r2" } }
---     { "+", "r1", "r3" } }
+--   { { "load", "r1", 12, 2 } }
+--     { "add", "r1", "r3" } }
 --
 -- The instructions available are:
 --   * ret-true
 --   * ret-false
 --   * cmp
---   * load
 --   * mov
+--   * load
 --   * add
 --   * add-3
 --   * add-i
@@ -67,51 +67,65 @@ local function select_block(block, new_register, instructions)
          local reg1 = select_arith(expr[2][2])
          local reg2 = select_arith(expr[2][3])
          local reg3 = select_arith(expr[3])
-         emit({ "add-3", reg1, reg2, reg3 })
-         return reg1
+         local tmp = new_register()
+         emit({ "mov", tmp, reg1 })
+         emit({ "add-3", tmp, reg2, reg3 })
+         return tmp
       elseif (expr[1] == "+" and type(expr[3]) == "table" and
               expr[3][1] == "+") then
          local reg1 = select_arith(expr[3][2])
          local reg2 = select_arith(expr[3][3])
          local reg3 = select_arith(expr[2])
-         emit({ "add-3", reg1, reg2, reg3 })
-         return reg1
+         local tmp = new_register()
+         emit({ "mov", tmp, reg1 })
+         emit({ "add-3", tmp, reg2, reg3 })
+         return tmp
 
       -- addition with immediate
       elseif expr[1] == "+" and type(expr[2]) == "number" then
          local reg3 = select_arith(expr[3])
-         emit({ "add-i", reg3, expr[2] })
-         return reg3
+         local tmp = new_register()
+         emit({ "mov", tmp, reg3 })
+         emit({ "add-i", tmp, expr[2] })
+         return tmp
       elseif expr[1] == "+" and type(expr[3]) == "number" then
          local reg2 = select_arith(expr[2])
-         emit({ "add-i", reg2, expr[3] })
-         return reg2
+         local tmp = new_register()
+         emit({ "mov", tmp, reg2 })
+         emit({ "add-i", tmp, expr[3] })
+         return tmp
 
       -- multiplication with constant
       elseif expr[1] == "*" and type(expr[2]) == "number" then
          local reg3 = select_arith(expr[3])
-         emit({ "mul-i", reg3, expr[2] })
-         return reg3
+         local tmp = new_register()
+         emit({ "mov", tmp, reg3 })
+         emit({ "mul-i", tmp, expr[2] })
+         return tmp
       elseif expr[1] == "*" and type(expr[3]) == "number" then
          local reg2 = select_arith(expr[2])
-         emit({ "mul-i", reg2, expr[3] })
-         return reg2
+         local tmp = new_register()
+         emit({ "mov", tmp, reg2 })
+         emit({ "mul-i", tmp, expr[3] })
+         return tmp
 
       -- generic multiplication
       elseif expr[1] == "*" then
          local reg2 = select_arith(expr[2])
          local reg3 = select_arith(expr[3])
-         -- TODO: consider inserting movs here to make RA easier?
-         emit({ "mul", reg2, reg3 })
-         return reg2
+         local tmp = new_register()
+         emit({ "mov", tmp, reg2 })
+         emit({ "mul", tmp, reg3 })
+         return tmp
 
       -- generic addition
       elseif expr[1] == "+" then
          local reg2 = select_arith(expr[2])
          local reg3 = select_arith(expr[3])
-         -- TODO: consider inserting movs here to make RA easier?
-         emit({ "add", reg2, reg3 })
-         return reg2
+         local tmp = new_register()
+         emit({ "mov", tmp, reg2 })
+         emit({ "add", tmp, reg3 })
+         return tmp
 
       else
 	 error(string.format("NYI op %s", expr[1]))
@@ -219,8 +233,9 @@ function selftest()
                       { "=", { "+", { "[]", 12, 2 }, 5 }, 1 } } },
        {  { "label", 1 },
           { "load", "r1", 12, 2 },
-          { "add-i", "r1", 5 },
-          { "cmp", "r1", 1 },
+          { "mov", "r2", "r1" },
+          { "add-i", "r2", 5 },
+          { "cmp", "r2", 1 },
           { "cjmp", "=", "true-label"},
           { "ret-false" } })
 
@@ -230,8 +245,9 @@ function selftest()
                       { "=", { "*", { "[]", 12, 2 }, 5 }, 1 } } },
         { { "label", 1 },
           { "load", "r1", 12, 2 },
-          { "mul-i", "r1", 5 },
-          { "cmp", "r1", 1 },
+          { "mov", "r2", "r1" },
+          { "mul-i", "r2", 5 },
+          { "cmp", "r2", 1 },
           { "cjmp", "=", "true-label" },
           { "ret-false" } })
 
@@ -241,8 +257,9 @@ function selftest()
         { { "label", 1 },
           { "load", "r1", 12, 2 },
           { "load", "r2", 14, 2 },
-          { "mul", "r1", "r2" },
-          { "cmp", "r1", 1 },
+          { "mov", "r3", "r1" },
+          { "mul", "r3", "r2" },
+          { "cmp", "r3", 1 },
           { "cjmp", "=", "true-label" },
           { "ret-false" } })
 
@@ -253,8 +270,9 @@ function selftest()
                       "L4", "L5" } },
         { { "label", 1 },
           { "load", "r1", 12, 2 },
-          { "add-i", "r1", 5 },
-          { "cmp", "r1", 1 },
+          { "mov", "r2", "r1" },
+          { "add-i", "r2", 5 },
+          { "cmp", "r2", 1 },
           { "cjmp", "!=", 4 } })
 
    test({ label = "L2",
@@ -264,8 +282,9 @@ function selftest()
                       "L4", "L5" } },
         { { "label", 1 },
           { "load", "r1", 12, 2 },
-          { "mul-i", "r1", 5 },
-          { "cmp", "r1", 1 },
+          { "mov", "r2", "r1" },
+          { "mul-i", "r2", 5 },
+          { "cmp", "r2", 1 },
           { "cjmp", "!=", 4 } } )
 
    test({ label = "L2",
@@ -276,8 +295,9 @@ function selftest()
         { { "label", 1 },
           { "load", "r1", 12, 2 },
           { "load", "r2", 14, 2 },
-          { "mul", "r1", "r2" },
-          { "cmp", "r1", 1 },
+          { "mov", "r3", "r1" },
+          { "mul", "r3", "r2" },
+          { "cmp", "r3", 1 },
           { "cjmp", "!=", 4 } })
 
    test({ label = "L10",
