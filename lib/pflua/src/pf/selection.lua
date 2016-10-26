@@ -12,6 +12,7 @@
 -- The instructions available are:
 --   * ret-true
 --   * ret-false
+--   * cmp
 --   * load
 --   * mov
 --   * add
@@ -22,6 +23,10 @@
 --   * cjmp
 
 module(...,package.seeall)
+
+local utils = require("pf.utils")
+
+local verbose = os.getenv("PF_VERBOSE");
 
 local negate_op = { ["="] = "!=", ["!="] = "=",
                     [">"] = "<=", ["<"] = ">=",
@@ -107,6 +112,9 @@ local function select_block(block, new_register, instructions)
          -- TODO: consider inserting movs here to make RA easier?
          emit({ "add", reg2, reg3 })
          return reg2
+
+      else
+	 error(string.format("NYI op %s", expr[1]))
       end
    end
 
@@ -153,6 +161,11 @@ local function make_new_register(reg_num)
       end
 end
 
+-- printing instruction IR for debugging
+function print_selection(ir)
+   utils.pp({ "instructions", ir })
+end
+
 function select(ssa)
    local blocks = ssa.blocks
    local instructions = {}
@@ -161,9 +174,11 @@ function select(ssa)
    local new_register = make_new_register(reg_num)
 
    for _, label in pairs(ssa.order) do
-      local block   = blocks[label]
+      select_block(blocks[label], new_register, instructions)
+   end
 
-      select_block(block, new_register, instructions)
+   if verbose then
+      print_selection(instructions)
    end
 
    return instructions
@@ -272,4 +287,42 @@ function selftest()
           { "load", "v2", 20, 1 },
           { "cmp", "v2", 6 },
           { "cjmp", "!=", 12 } })
+
+   -- test on a whole set of blocks
+   local function test(block, expected)
+      local instructions = select(block)
+      utils.assert_equals(instructions, expected)
+   end
+
+   test(-- this is the first few blocks of the `tcp` filter
+        { start = "L1",
+          order = { "L1", "L4", "L6", "L7" },
+          blocks =
+             { L1 = { label = "L1",
+	              bindings = {},
+	              control = { "if", { ">=", "len", 34 }, "L4", "L5" } },
+	       L4 = { label = "L4",
+	              bindings = { { name = "v1", value = { "[]", 12, 2 } } },
+	              control = { "if", { "=", "v1", 8 }, "L6", "L7" } },
+	       L6 = { label = "L6",
+	              bindings = {},
+	              control = { "return", { "=", { "[]", 23, 1 }, 6 } } },
+	       L7 = { label = "L7",
+	              bindings = {},
+	              control = { "if", { ">=", "len", 54 }, "L8", "L9" } } } },
+        { { "label", 0 },
+          { "cmp", "len", 34 },
+          { "cjmp", "<", 4 },
+          { "label", 3 },
+          { "load", "v1", 12, 2 },
+          { "cmp", "v1", 8 },
+          { "cjmp", "!=", 6 },
+          { "label", 5 },
+          { "load", "r1", 23, 1 },
+          { "cmp", "r1", 6 },
+          { "cjmp", "=", "true-label" },
+          { "ret-false" },
+          { "label", 6 },
+          { "cmp", "len", 54 },
+          { "cjmp", "<", 8 } })
 end
