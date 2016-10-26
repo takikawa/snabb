@@ -26,11 +26,6 @@ function translate_variable(var)
    end
 end
 
--- extract a number from an SSA IR label
-function label_num(label)
-   return tonumber(string.match(label, "L(%d+)"))
-end
-
 -- compile a boolean expression that appears in a conditional or return
 function compile_relop(Dst, expr, alloc)
    local lhs_reg = assert(alloc[expr[2]])
