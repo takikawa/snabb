@@ -165,15 +165,15 @@ local function compile_jmp(Dst, expr, if_next)
      end
    else
      if op == "=" then
-        | jne >1
+        | je >1
      elseif op == ">=" then
-        | jl  >1
+        | jge  >1
      elseif op == "<=" then
-        | jg  >1
+        | jle  >1
      elseif op == ">" then
-        | jle >1
+        | jg >1
      elseif op == "<" then
-        | jge >1
+        | jl >1
      end
    end
 
