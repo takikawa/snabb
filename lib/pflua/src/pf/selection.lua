@@ -152,7 +152,7 @@ local function make_new_register(reg_num)
       end
 end
 
-function lower(ssa)
+function select(ssa)
    local blocks = ssa.blocks
    local instructions = {}
 
