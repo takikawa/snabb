@@ -28,8 +28,9 @@ local negate_op = { ["="] = "!=", ["!="] = "=",
                     [">="] = "<", ["<="] = ">" }
 
 -- extract a number from an SSA IR label
+-- decrement by 1 since codegen labels start at 0
 function label_num(label)
-   return tonumber(string.match(label, "L(%d+)"))
+   return tonumber(string.match(label, "L(%d+)")) - 1
 end
 
 -- Convert a block to a sequence of pseudo-instructions
@@ -139,7 +140,7 @@ local function select_block(block, new_register, instructions)
    elseif control[1] == "if" then
       local cond = control[2]
       select_bool(cond)
-      emit({ "cjmp", negate_op[cond[1]], control[4] })
+      emit({ "cjmp", negate_op[cond[1]], label_num(control[4]) })
    end
 end
 
@@ -184,14 +185,14 @@ function selftest()
    test({ label = "L1",
           bindings = {},
           control = { "if", { ">=", "len", 14 }, "L4", "L5" } },
-       {  { "label", 1 },
+       {  { "label", 0 },
           { "cmp", "len", 14 },
-          { "cjmp", "<", "L5" } })
+          { "cjmp", "<", 4 } })
 
    test({ label = "L4",
           bindings = {},
           control = { "return", { "=", { "[]", 12, 2 }, 1544 } } },
-        { { "label", 4 },
+        { { "label", 3 },
           { "load", "r1", 12, 2 },
           { "cmp", "r1", 1544 },
           { "cjmp", "=", "true-label" },
@@ -201,7 +202,7 @@ function selftest()
           bindings = {},
           control = { "return",
                       { "=", { "+", { "[]", 12, 2 }, 5 }, 1 } } },
-       {  { "label", 2 },
+       {  { "label", 1 },
           { "load", "r1", 12, 2 },
           { "add-i", "r1", 5 },
           { "cmp", "r1", 1 },
@@ -212,7 +213,7 @@ function selftest()
           bindings = {},
           control = { "return",
                       { "=", { "*", { "[]", 12, 2 }, 5 }, 1 } } },
-        { { "label", 2 },
+        { { "label", 1 },
           { "load", "r1", 12, 2 },
           { "mul-i", "r1", 5 },
           { "cmp", "r1", 1 },
@@ -222,7 +223,7 @@ function selftest()
    test({ label = "L2",
           bindings = {},
           control = { "return", { "=", { "*", { "[]", 12, 2 }, { "[]", 14, 2 } }, 1 } } },
-        { { "label", 2 },
+        { { "label", 1 },
           { "load", "r1", 12, 2 },
           { "load", "r2", 14, 2 },
           { "mul", "r1", "r2" },
@@ -235,40 +236,40 @@ function selftest()
           control = { "if",
                       { "=", { "+", { "[]", 12, 2 }, 5 }, 1 },
                       "L4", "L5" } },
-        { { "label", 2 },
+        { { "label", 1 },
           { "load", "r1", 12, 2 },
           { "add-i", "r1", 5 },
           { "cmp", "r1", 1 },
-          { "cjmp", "!=", "L5" } })
+          { "cjmp", "!=", 4 } })
 
    test({ label = "L2",
           bindings = {},
           control = { "if",
                       { "=", { "*", { "[]", 12, 2 }, 5 }, 1 },
                       "L4", "L5" } },
-        { { "label", 2 },
+        { { "label", 1 },
           { "load", "r1", 12, 2 },
           { "mul-i", "r1", 5 },
           { "cmp", "r1", 1 },
-          { "cjmp", "!=", "L5" } } )
+          { "cjmp", "!=", 4 } } )
 
    test({ label = "L2",
           bindings = {},
           control = { "if",
                       { "=", { "*", { "[]", 12, 2 }, { "[]", 14, 2 } }, 1 },
                       "L4", "L5" } },
-        { { "label", 2 },
+        { { "label", 1 },
           { "load", "r1", 12, 2 },
           { "load", "r2", 14, 2 },
           { "mul", "r1", "r2" },
           { "cmp", "r1", 1 },
-          { "cjmp", "!=", "L5" } })
+          { "cjmp", "!=", 4 } })
 
    test({ label = "L10",
           bindings = { { name = "v2", value = { "[]", 20, 1 } } },
           control = { "if", { "=", "v2", 6 }, "L12", "L13" } },
-        { { "label", 10 },
+        { { "label", 9 },
           { "load", "v2", 20, 1 },
           { "cmp", "v2", 6 },
-          { "cjmp", "!=", "L13" } })
+          { "cjmp", "!=", 12 } })
 end
