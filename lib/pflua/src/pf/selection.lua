@@ -22,6 +22,7 @@
 --   * mul-i
 --   * ntohs
 --   * cjmp
+--   * noop (inserted by register allocation)
 
 module(...,package.seeall)
 

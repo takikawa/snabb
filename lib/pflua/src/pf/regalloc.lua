@@ -159,21 +159,14 @@ end
 
 -- Optimize movs from a register to the same one
 local function delete_useless_movs(ir, alloc)
-   local to_delete = {}
-
    for idx, instr in ipairs(ir) do
       if instr[1] == "mov" then
-         local r1 = alloc[instr[2]]
-         local r2 = alloc[instr[3]]
-
-         if r1 == r2 then
-            table.insert(to_delete, idx)
+         if alloc[instr[2]] == alloc[instr[3]] then
+            -- It's faster just to convert these to
+            -- noops than to re-number the table
+            ir[idx] = { "noop" }
          end
       end
-   end
-
-   for _, idx in ipairs(to_delete) do
-      table.remove(ir, idx)
    end
 end
 
@@ -330,6 +323,7 @@ function selftest()
                        { { "label", 1 },
                          { "load", "r1", 12, 2 },
                          { "load", "r2", 14, 2 },
+                         { "noop" },
                          { "mul", "r3", "r2" },
                          { "cmp", "r3", 1 },
                          { "cjmp", "!=", 4 } })

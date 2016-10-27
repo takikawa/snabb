@@ -164,6 +164,9 @@ local function compile(instructions, alloc, dump)
       elseif itype == "ret-false" then
          | jmp =>(1)
 
+      elseif itype == "noop" then
+         -- don't output anything
+
       else
 	 error(string.format("NYI instruction %s", itype))
       end
