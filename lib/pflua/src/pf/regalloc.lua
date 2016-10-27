@@ -106,17 +106,55 @@ local function live_intervals(instrs)
 end
 
 -- All available registers, tied to unix x64 ABI
-local caller_regs = {0, 1, 2, 8, 9, 10, 11}
+local caller_regs = {0, 1, 2, 6, 8, 9, 10, 11}
 local callee_regs = {3, 12, 13, 14, 15}
 local num_regs = #caller_regs + #callee_regs
 
-local function is_free(seq, name)
+-- Check if a register is free in the freelist
+local function is_free(seq, reg)
    for _, val in ipairs(seq) do
-      if val == name
+      if val == reg then
+         return true
+      end
+   end
+
+   return false
+end
+
+-- Insert the free register in sorted position
+local function insert_free(freelist, reg)
+   for idx, reg2 in ipairs(freelist) do
+      if reg2 > reg then
+         table.insert(freelist, idx, reg)
+         return
+      end
+   end
+
+   table.insert(freelist, reg)
+end
+
+-- Remove the given register from the freelist
+local function remove_free(freelist, reg)
+   for idx, reg2 in ipairs(freelist) do
+      if reg2 == reg then
+         table.remove(freelist, idx)
+         return
+      end
    end
 end
 
-local function insert_free(seq, name)
+-- Insert an interval sorted by increasing finish
+local function insert_active(active, interval)
+   local finish = interval.finish
+
+   for idx, interval2 in ipairs(active) do
+      if interval2.finish > finish then
+         table.insert(active, idx, interval)
+         return
+      end
+   end
+
+   table.insert(active, interval)
 end
 
 -- Do register allocation with the given IR
@@ -129,21 +167,24 @@ function allocate(ir)
    -- callee-save registers, if we have to
    local free_callee = utils.dup(callee_regs)
 
-   local allocation = { "len" = 6 } -- %rsi
+   local allocation = { len = 6 } -- %rsi
+   remove_free(free_caller, 6)
 
    local function expire_old(interval)
-      for _, active_interval in pairs(active) do
+      for idx, active_interval in ipairs(active) do
          if active_interval.finish >= interval.start then
             return
          else
             local name = active_interval.name
             local reg = allocation[name]
 
-            table.remove(active, active_interval)
-            if caller_regs[allocation[name]] then
+            table.remove(active, idx)
+
+            -- figure out which free list this register is supposed to be on
+            if is_free(caller_regs, reg) then
                insert_free(free_caller, reg)
-            elseif callee_regs[allocation[name]] then
-               free_callee(free_callee, name)
+            elseif is_free(callee_regs, reg) then
+               insert_free(free_callee, reg)
             else
                error("unknown register")
             end
@@ -152,15 +193,25 @@ function allocate(ir)
    end
 
    for _, interval in pairs(intervals) do
-      expire_old(active, allocation, interval)
+      local name = interval.name
 
-      if #free_caller == 0 and #free_callee == 0 then
-         -- TODO: do a spill
-      elseif #free_caller == 0 then
-         allocation[interval.name] = free_callee[1]
-      else
-         allocation[interval.name] = free_caller[1]
+      expire_old(interval)
+
+      -- because we prefill some registers, check first if
+      -- we need to allocate for this interval
+      if not allocation[name] then
+        if #free_caller == 0 and #free_callee == 0 then
+           -- TODO: do a spill
+        elseif #free_caller == 0 then
+           allocation[name] = free_callee[1]
+           table.remove(free_callee, 1)
+        else
+           allocation[name] = free_caller[1]
+           table.remove(free_caller, 1)
+        end
       end
+
+      insert_active(active, interval)
    end
 
    return allocation
@@ -201,4 +252,10 @@ function selftest()
           { name = "v1", start = 5, finish = 17 },
           { name = "r1", start = 9, finish = 10 },
           { name = "v2", start = 20, finish = 21 } })
+
+   local function test(instrs, expected)
+      utils.assert_equals(expected, allocate(instrs))
+   end
+
+   test(example_1, { v1 = 0, r1 = 1, len = 6, v2 = 0})
 end
