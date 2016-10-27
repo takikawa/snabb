@@ -6,7 +6,7 @@ local C = ffi.C
 
 local dasm = require("dasm")
 
-local regalloc = require("pf.regalloc")
+local ra = require("pf.regalloc")
 
 |.arch x64
 |.actionlist actions
@@ -17,19 +17,25 @@ local anchor = {}
 local debug = true
 
 local function compile_cjmp(Dst, op, target)
-  if op == "=" then
+   if (target == "true-label") then
+      target = 0
+   else
+      target = target + 3
+   end
+
+   if op == "=" then
       | je   =>(target)
-  elseif op == "!=" then
+   elseif op == "!=" then
       | jne  =>(target)
-  elseif op == ">=" then
+   elseif op == ">=" then
       | jge  =>(target)
-  elseif op == "<=" then
+   elseif op == "<=" then
       | jle  =>(target)
-  elseif op == ">" then
+   elseif op == ">" then
       | jg   =>(target)
-  elseif op == "<" then
+   elseif op == "<" then
       | jl   =>(target)
-  end
+   end
 end
 
 local function compile(instructions, alloc, dump)
@@ -45,10 +51,9 @@ local function compile(instructions, alloc, dump)
    --   | sub rsp, spilled_space
    --end
 
-   for _, instr = ipairs(instructions) do
-      local itype = instr[1]
-
-      if itype == "label" then
+   -- first go find the max number of labels
+   for _, instr in ipairs(instructions) do
+      if instr[1] == "label" then
          -- offset for reserved labels
          local lnum = instr[2] + 3
 
@@ -56,17 +61,18 @@ local function compile(instructions, alloc, dump)
             maxpc = lnum + 1
             Dst:growpc(maxpc)
          end
+      end
+   end
 
+   for _, instr in ipairs(instructions) do
+      local itype = instr[1]
+
+      if itype == "label" then
+         local lnum = instr[2] + 3
          |=>(lnum):
 
       elseif itype == "cjmp" then
-         local target = instr[3]
-
-         if (instr[3] == "true-label") then
-            target = 0
-         end
-
-         compile_cjmp(Dst, insr[2], target)
+         compile_cjmp(Dst, instr[2], instr[3])
 
       elseif itype == "cmp" then
         local lhs_reg = alloc[instr[2]]
@@ -80,25 +86,25 @@ local function compile(instructions, alloc, dump)
         end
 
       elseif itype == "load" then
-         local target = alloc(instr[2])
+         local target = alloc[instr[2]]
          local offset = instr[3]
          local bytes  = instr[4]
 
          if bytes == 1 then
-            | movzx Rq(target_reg), byte [rdi + offset]
+            | movzx Rq(target), byte [rdi + offset]
          elseif bytes == 2 then
-            | movzx Rq(target_reg), word [rdi + offset]
+            | movzx Rq(target), word [rdi + offset]
          else
-            | mov   Rd(target_reg), dword [rdi + offset]
+            | mov   Rd(target), dword [rdi + offset]
          end
 
       elseif op == "add" then
-         local r1, r2 = alloc[instr[2]], alloc[instr[3]]
-         | add Rq(r1), Rq(r2)
+         local reg1, reg2 = alloc[instr[2]], alloc[instr[3]]
+         | add Rq(reg1), Rq(reg2)
 
       elseif op == "mul" then
-         local r1, r2 = alloc[instr[2]], alloc[instr[3]]
-         | imul Rq(r1), Rq(r2)
+         local reg1, reg2 = alloc[instr[2]], alloc[instr[3]]
+         | imul Rq(reg1), Rq(reg2)
 
       elseif op == "add-i" then
          local reg = alloc[instr[2]]
@@ -124,23 +130,28 @@ local function compile(instructions, alloc, dump)
             | imul Rq(r), const
          end
 
-      elseif itype == "+3" then
-         local r1 = alloc[instr[2]]
+      elseif itype == "add-3" then
+         local reg1 = alloc[instr[2]]
 
          -- expr2 is always a register
          -- due to constant folding, only at most one of expr3
          -- or expr4 can be a constant
          if type(instr[3]) == "number" then
-            local r2 = alloc[instr[4]]
-            | lea Rq(r1), [Rq(r2)+instr[3]]
+            local reg2 = alloc[instr[4]]
+            | lea Rq(reg1), [Rq(reg2)+instr[3]]
          elseif type(instr[4]) == "number" then
-            local r2 = alloc[instr[3]]
-            | lea Rq(r1), [Rq(r2)+instr[4]]
+            local reg2 = alloc[instr[3]]
+            | lea Rq(reg1), [Rq(reg2)+instr[4]]
          else
-            local r2, r3 = alloc[instr[3]], alloc[instr[4]]
-            | lea Rq(r1), [Rq(r2)+Rq(r3)]
+            local reg2, reg3 = alloc[instr[3]], alloc[instr[4]]
+            | lea Rq(reg1), [Rq(reg2)+Rq(reg3)]
          end
-      end
+
+      elseif itype == "ret-true" then
+         | jmp =>(0)
+
+      elseif itype == "ret-false" then
+         | jmp =>(1)
 
       else
 	 error(string.format("NYI instruction %s", itype))
@@ -151,7 +162,7 @@ local function compile(instructions, alloc, dump)
    -- TODO: do this more cleverly
    |=>(0):
    | mov rax, 0x1
-   | jmp >3
+   | jmp =>(2)
    |=>(1):
    | mov rax, 0x0
    |=>(2):
@@ -290,29 +301,16 @@ function selftest()
                     bindings = {},
                     control = { "return", { "false" } } } } }
 
-   local function test(ssa, pkt, regalloc)
+   local function test(ssa, pkt, alloc)
       -- Compile and then call native function on the given packet
       local instr = sel.select(ssa)
-      local f = compile(instr, regalloc)
+
+      if not alloc then
+         alloc = ra.allocate(instr)
+      end
+
+      local f = compile(instr, alloc)
       return f(pkt.packet, pkt.len)
-   end
-
-   -- set up the metatables properly on sub-tables of example
-   -- register allocation outputs used in tests
-   local function fix_ra(ssa, ra)
-      for _, val in pairs(ra) do
-         if type(val) == "table" and not val.spill then
-            setmetatable(val, {__index = ra})
-         end
-      end
-
-      for label, block in pairs(ssa.blocks) do
-         if not ra[label] then
-            local tbl = {}
-            ra[label] = tbl
-            setmetatable(tbl, {__index = ra})
-         end
-      end
    end
 
    local savefile = require("pf.savefile")
@@ -320,63 +318,26 @@ function selftest()
    v4_pkts = savefile.load_packets("../tests/data/v4.pcap")
    v6_pkts = savefile.load_packets("../tests/data/v6.pcap")
 
-   local rax, rcx, rdx, rsi, rdi = 0, 1, 2, 6, 7
-   local alloc_1 = { num_spilled = 0,
-                     len = rsi,
-                     P = rdi,
-                     L4 = { r1 = rax } }
-   fix_ra(example_1, alloc_1)
-
    -- not an arp packet
+   local alloc_1 = { len = 6, r1 = 0, callee_saves = {} }
    assert(not test(example_1, arp_pkts[1], alloc_1))
    assert(not test(example_1, arp_pkts[2], alloc_1))
-   -- TODO: this is currently broken
-   --assert(not test(example_1, arp_pkts[2], ra.allocate_registers(example_1)))
+   assert(not test(example_1, arp_pkts[1]))
+   assert(not test(example_1, arp_pkts[2]))
    -- yay arp
    assert(test(example_2, arp_pkts[1], alloc_1))
    assert(test(example_2, arp_pkts[2], alloc_1))
+   assert(test(example_2, arp_pkts[1]))
+   assert(test(example_2, arp_pkts[2]))
 
-   local alloc_3 = { num_spilled = 0,
-                     len = rsi,
-                     P = rdi,
-                     L6 = { r1 = rax },
-                     L16 = { r1 = rax } }
-   fix_ra(example_3, alloc_3)
+   assert(not test(example_3,
+                   arp_pkts[1]))
+   assert(test(example_3,
+               -- this one is a TCP packet
+               v4_pkts[1]))
+   assert(test(example_3,
+               -- this one is also a TCP packet
+               v6_pkts[16]))
 
-   local function test_3()
-      assert(not test(example_3,
-                      arp_pkts[1],
-                      alloc_3))
-      assert(test(example_3,
-                  -- this one is a TCP packet
-                  v4_pkts[1],
-                  alloc_3))
-      assert(test(example_3,
-                  -- this one is also a TCP packet
-                  v6_pkts[16],
-                  alloc_3))
-   end
-
-   -- TODO: spills are currently broken
-   --test_3({ v1 = { spill = 1 },
-   --         v2 = { spill = 2 },
-   --         num_spilled = 2 })
-   alloc_3.v1 = rcx -- %rcx
-   alloc_3.v2 = rdx -- %rdx
-   test_3()
-
-   alloc_3.v1 = 8 -- %r8
-   alloc_3.v2 = 9 -- %r9
-   test_3()
-
-   local alloc_4 = { num_spilled = 0,
-                     len = rsi,
-                     P = rdi,
-		     L4 = { r1 = rax },
-                     L6 = { r1 = rax,
-                            r2 = rcx,
-                            r3 = rdx,
-                            r4 = rax } }
-   fix_ra(example_4, alloc_4)
-   test(example_4, arp_pkts[1], alloc_4)
+   test(example_4, arp_pkts[1])
 end
