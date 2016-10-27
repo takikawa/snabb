@@ -189,7 +189,8 @@ function allocate(ir)
    -- callee-save registers, if we have to
    local free_callee = utils.dup(callee_regs)
 
-   local allocation = { len = 6 } -- %rsi
+   local allocation = { len = 6, -- %rsi
+                        callee_saves = {} }
    remove_free(free_caller, 6)
 
    local function expire_old(interval)
@@ -224,12 +225,13 @@ function allocate(ir)
       if not allocation[name] then
         if #free_caller == 0 and #free_callee == 0 then
            -- TODO: do a spill
-        elseif #free_caller == 0 then
-           allocation[name] = free_callee[1]
-           table.remove(free_callee, 1)
-        else
+        elseif #free_caller ~= 0 then
            allocation[name] = free_caller[1]
            table.remove(free_caller, 1)
+        else
+           allocation[name] = free_callee[1]
+           table.insert(allocation.callee_saves, free_callee[1])
+           table.remove(free_callee, 1)
         end
       end
 
@@ -319,9 +321,11 @@ function selftest()
       utils.assert_equals(expected, allocate(instrs))
    end
 
-   test(example_1, { v1 = 0, r1 = 1, len = 6, v2 = 0 })
+   test(example_1,
+        { v1 = 0, r1 = 1, len = 6, v2 = 0, callee_saves = {} })
    -- mutates example_2
-   test(example_2, { r1 = 0, r2 = 1, r3 = 0, len = 6 })
+   test(example_2,
+        { r1 = 0, r2 = 1, r3 = 0, len = 6, callee_saves = {} })
    utils.assert_equals(example_2,
                        { { "label", 1 },
                           { "load", "r1", 12, 2 },
@@ -332,7 +336,8 @@ function selftest()
 
    test(example_3,
         { r1 = 0, r2 = 1, r3 = 2, r4 = 6, r5 = 8, r6 = 9,
-          r7 = 10, r8 = 11, r9 = 3, len = 6 })
+          r7 = 10, r8 = 11, r9 = 3, len = 6,
+          callee_saves = { 3 } })
 
    local function test(instrs, expected)
       utils.assert_equals(expected, allocate(instrs))
