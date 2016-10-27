@@ -157,7 +157,29 @@ local function insert_active(active, interval)
    table.insert(active, interval)
 end
 
+-- Optimize movs from a register to the same one
+local function delete_useless_movs(ir, alloc)
+   local to_delete = {}
+
+   for idx, instr in ipairs(ir) do
+      if instr[1] == "mov" then
+         local r1 = alloc[instr[2]]
+         local r2 = alloc[instr[3]]
+
+         if r1 == r2 then
+            table.insert(to_delete, idx)
+         end
+      end
+   end
+
+   for _, idx in ipairs(to_delete) do
+      table.remove(ir, idx)
+   end
+end
+
 -- Do register allocation with the given IR
+-- Returns a register allocation and potentially mutates
+-- the ir for optimizations
 function allocate(ir)
    local intervals = live_intervals(ir)
    local active = {}
@@ -214,6 +236,8 @@ function allocate(ir)
       insert_active(active, interval)
    end
 
+   delete_useless_movs(ir, allocation)
+
    return allocation
 end
 
@@ -256,6 +280,29 @@ function selftest()
         { "cmp", "r3", 1 },
         { "cjmp", "!=", 4 } }
 
+   -- this example isn't from real code, but tests what happens when
+   -- there is higher register pressure
+   local example_3 =
+      { { "label", 1 },
+        { "load", "r1", 12, 2 },
+        { "load", "r2", 14, 2 },
+        { "load", "r3", 15, 2 },
+        { "load", "r4", 16, 2 },
+        { "load", "r5", 17, 2 },
+        { "load", "r6", 18, 2 },
+        { "load", "r7", 19, 2 },
+        { "load", "r8", 20, 2 },
+        { "load", "r9", 21, 2 },
+        { "cmp", "r1", 1 },
+        { "cmp", "r2", 1 },
+        { "cmp", "r3", 1 },
+        { "cmp", "r4", 1 },
+        { "cmp", "r5", 1 },
+        { "cmp", "r6", 1 },
+        { "cmp", "r7", 1 },
+        { "cmp", "r8", 1 },
+        { "cmp", "r9", 1 } }
+
    test(example_1,
         { { name = "len", start = 1, finish = 14 },
           { name = "v1", start = 5, finish = 17 },
@@ -273,7 +320,19 @@ function selftest()
    end
 
    test(example_1, { v1 = 0, r1 = 1, len = 6, v2 = 0 })
+   -- mutates example_2
    test(example_2, { r1 = 0, r2 = 1, r3 = 0, len = 6 })
+   utils.assert_equals(example_2,
+                       { { "label", 1 },
+                          { "load", "r1", 12, 2 },
+                          { "load", "r2", 14, 2 },
+                          { "mul", "r3", "r2" },
+                          { "cmp", "r3", 1 },
+                          { "cjmp", "!=", 4 } })
+
+   test(example_3,
+        { r1 = 0, r2 = 1, r3 = 2, r4 = 6, r5 = 8, r6 = 9,
+          r7 = 10, r8 = 11, r9 = 3, len = 6 })
 
    local function test(instrs, expected)
       utils.assert_equals(expected, allocate(instrs))
