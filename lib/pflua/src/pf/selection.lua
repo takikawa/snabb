@@ -174,8 +174,8 @@ local function select_block(block, new_register, instructions)
    end
 
    local function select_bool(expr)
-      reg1 = select_arith(expr[2])
-      reg2 = select_arith(expr[3])
+      local reg1 = select_arith(expr[2])
+      local reg2 = select_arith(expr[3])
       emit({ "cmp", reg1, reg2 })
    end
 
