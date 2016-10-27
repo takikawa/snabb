@@ -218,6 +218,7 @@ function allocate(ir)
       if not allocation[name] then
         if #free_caller == 0 and #free_callee == 0 then
            -- TODO: do a spill
+           error("No spilling yet")
         elseif #free_caller ~= 0 then
            allocation[name] = free_caller[1]
            table.remove(free_caller, 1)
