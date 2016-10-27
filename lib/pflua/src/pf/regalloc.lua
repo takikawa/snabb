@@ -328,11 +328,11 @@ function selftest()
         { r1 = 0, r2 = 1, r3 = 0, len = 6, callee_saves = {} })
    utils.assert_equals(example_2,
                        { { "label", 1 },
-                          { "load", "r1", 12, 2 },
-                          { "load", "r2", 14, 2 },
-                          { "mul", "r3", "r2" },
-                          { "cmp", "r3", 1 },
-                          { "cjmp", "!=", 4 } })
+                         { "load", "r1", 12, 2 },
+                         { "load", "r2", 14, 2 },
+                         { "mul", "r3", "r2" },
+                         { "cmp", "r3", 1 },
+                         { "cjmp", "!=", 4 } })
 
    test(example_3,
         { r1 = 0, r2 = 1, r3 = 2, r4 = 6, r5 = 8, r6 = 9,
