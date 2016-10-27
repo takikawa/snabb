@@ -316,7 +316,7 @@ function selftest()
 
    test(-- this is the first few blocks of the `tcp` filter
         { start = "L1",
-          order = { "L1", "L4", "L6", "L7" },
+          order = { "L1", "L4", "L6", "L7", "L8", "L10" },
           blocks =
              { L1 = { label = "L1",
 	              bindings = {},
@@ -329,7 +329,13 @@ function selftest()
 	              control = { "return", { "=", { "[]", 23, 1 }, 6 } } },
 	       L7 = { label = "L7",
 	              bindings = {},
-	              control = { "if", { ">=", "len", 54 }, "L8", "L9" } } } },
+	              control = { "if", { ">=", "len", 54 }, "L8", "L9" } },
+               L8 = { label = "L8",
+	              bindings = {},
+	              control = { "if", { "=", "v1", 56710 }, "L10", "L11" } },
+               L10 = { label = "L10",
+                       bindings = { { name = "v2", value = { "[]", 20, 1 } } },
+                       control = { "if", { "=", "v2", 6 }, "L12", "L13" } } } },
         { { "label", 0 },
           { "cmp", "len", 34 },
           { "cjmp", "<", 4 },
@@ -344,5 +350,12 @@ function selftest()
           { "ret-false" },
           { "label", 6 },
           { "cmp", "len", 54 },
-          { "cjmp", "<", 8 } })
+          { "cjmp", "<", 8 },
+          { "label", 7 },
+          { "cmp", "v1", 56710 },
+          { "cjmp", "!=", 10 },
+          { "label", 9 },
+          { "load", "v2", 20, 1 },
+          { "cmp", "v2", 6 },
+          { "cjmp", "!=", 12 } })
 end
