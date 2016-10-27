@@ -16,242 +16,150 @@ local anchor = {}
 
 local debug = true
 
--- translate a variable occurrence into the appropriate
--- register, perhaps consulting the register allocation
-function translate_variable(var)
-   if var == "P" then
-      return "edi"
-   elseif var == "len" then
-      return "esi"
-   end
+local function compile_cjmp(Dst, op, target)
+  if op == "=" then
+      | je   =>(target)
+  elseif op == "!=" then
+      | jne  =>(target)
+  elseif op == ">=" then
+      | jge  =>(target)
+  elseif op == "<=" then
+      | jle  =>(target)
+  elseif op == ">" then
+      | jg   =>(target)
+  elseif op == "<" then
+      | jl   =>(target)
+  end
 end
 
--- compile a boolean expression that appears in a conditional or return
-function compile_relop(Dst, expr, alloc)
-   local lhs_reg = assert(alloc[expr[2]])
-   local rhs = expr[3]
-
-   if type(rhs) == "number" then
-      | cmp Rq(lhs_reg), rhs
-   else
-      local rhs_reg = alloc[rhs]
-      | cmp Rq(lhs_reg), Rq(rhs_reg)
-   end
-end
-
--- compile an arithmetic expression
-function compile_expr(Dst, name, expr, alloc)
-   local op         = expr[1]
-   local target_reg = assert(alloc[name])
-
-   if op == "[]" then
-      local offset = expr[2]
-      local bytes  = expr[3]
-
-      if bytes == 1 then
-         | movzx Rq(target_reg), byte [rdi + offset]
-      elseif bytes == 2 then
-         | movzx Rq(target_reg), word [rdi + offset]
-      else
-         | mov   Rd(target_reg), dword [rdi + offset]
-      end
-
-   elseif op == "+" then
-      | add Rq(target_reg), Rq(alloc[expr[3]])
-
-   elseif op == "*" then
-      | mul Rq(alloc[expr[3]])
-
-   elseif op == "+const" then
-      | add Rq(target_reg), expr[3]
-
-   elseif op == "*const" then
-      local const = expr[3]
-      local r = target_reg
-
-      if const == 2 then
-         | lea Rq(r), [Rq(r)*2]
-      elseif const == 4 then
-         | lea Rq(r), [Rq(r)*4]
-      elseif const == 8 then
-         | lea Rq(r), [Rq(r)*8]
-      elseif const == 3 then
-         | lea Rq(r), [Rq(r)+Rq(r)*2]
-      elseif const == 5 then
-         | lea Rq(r), [Rq(r)+Rq(r)*4]
-      elseif const == 7 then
-         | lea Rq(r), [Rq(r)+Rq(r)*8]
-      else
-         | imul Rq(target_reg), expr[3]
-      end
-
-   elseif op == "+3" then
-      local expr2, expr3, expr4 = expr[2], expr[3], expr[4]
-
-      -- expr2 is always a register
-      -- due to constant folding, only at most one of expr3
-      -- or expr4 can be a constant
-      if type(expr3) == "number" then
-         local e4_reg = alloc[expr4]
-         | lea Rq(target_reg), [Rq(e4_reg)+expr3]
-      elseif type(expr4) == "number" then
-         local e3_reg = alloc[expr3]
-         | lea Rq(target_reg), [Rq(e3_reg)+expr4]
-      else
-         local e3_reg = alloc[expr3]
-         local e4_reg = alloc[expr4]
-         | lea Rq(target_reg), [Rq(e4_reg)+Rq(e3_reg)]
-      end
-
-   else
-      error(string.format("NYI expr %s", op))
-   end
-end
-
-local function compile_cmp(Dst, var, const, alloc)
-   if var == "P" then
-      | cmp edi, const
-      return
-   elseif var == "len" then
-      | cmp esi, const
-      return
-   end
-
-   local reg = alloc[var]
-
-   if type(reg) == "table" then
-     -- spill case
-     local offset = (reg.spill - 1) * 32
-     | cmp dword [rsp + offset], const
-   else
-     | cmp Rq(reg), const
-   end
-end
-
--- generate a move from rax to the appropriate register
-local function compile_var_move(Dst, var, alloc)
-   local reg = alloc[var]
-
-   if type(reg) == "table" then
-      -- spill case
-      local offset = (reg.spill - 1) * 32
-      | mov [rsp + offset], rax
-   else
-      | mov Rq(reg), rax
-   end
-end
-
-local function compile_jmp(Dst, expr, if_next)
-   local op = expr[1];
-
-   -- TODO: simplify this, maybe by using a runtime
-   --       label for the return case
-   if if_next then
-     if op == "=" then
-        | jne =>(if_next)
-     elseif op == ">=" then
-        | jl  =>(if_next)
-     elseif op == "<=" then
-        | jg  =>(if_next)
-     elseif op == ">" then
-        | jle =>(if_next)
-     elseif op == "<" then
-        | jge =>(if_next)
-     end
-   else
-     if op == "=" then
-        | je >1
-     elseif op == ">=" then
-        | jge  >1
-     elseif op == "<=" then
-        | jle  >1
-     elseif op == ">" then
-        | jg >1
-     elseif op == "<" then
-        | jl >1
-     end
-   end
-
-   if not if_next then
-      | jmp >2
-   end
-end
-
-local function compile(ssa, alloc, dump)
+local function compile(instructions, alloc, dump)
    local Dst = dasm.new(actions)
 
-   -- number of =>(...) style labels, we need a maximum
-   -- of one per SSA block label plus a few special ones
-   local order = ssa.order
-   local maxpc = #order
-   local label_map = {}
-
-   Dst:growpc(maxpc)
-
-   -- map ir labels to pc labels
-   -- pc labels start at 0, so decrement
-   for idx, label in ipairs(order) do
-      label_map[label] = idx - 1
-   end
+   -- number of =>(...) style labels
+   -- reserve three labels 0-2 for return cases
+   local maxpc = 3
 
    -- allocate space for all spilled vars
-   local spilled_space = alloc.num_spilled * 32
-   if spilled_space > 0 then
-      | sub rsp, spilled_space
-   end
+   --local spilled_space = alloc.num_spilled * 32
+   --if spilled_space > 0 then
+   --   | sub rsp, spilled_space
+   --end
 
-   local blocks = ssa.blocks
-   for _, label in ipairs(order) do
-      local block = blocks[label]
+   for _, instr = ipairs(instructions) do
+      local itype = instr[1]
 
-      cur_label = label_map[label]
-      |=>(cur_label):
+      if itype == "label" then
+         -- offset for reserved labels
+         local lnum = instr[2] + 3
 
-      local control = block.control
-      local bindings = block.bindings
-      -- lookup register allocation for this block
-      local local_alloc = alloc[label]
-      local op = control[1]
+         if lnum + 1 > maxpc then
+            maxpc = lnum + 1
+            Dst:growpc(maxpc)
+         end
 
-      for _, binding in ipairs(bindings) do
-         compile_expr(Dst, binding.name, binding.value, local_alloc)
+         |=>(lnum):
+
+      elseif itype == "cjmp" then
+         local target = instr[3]
+
+         if (instr[3] == "true-label") then
+            target = 0
+         end
+
+         compile_cjmp(Dst, insr[2], target)
+
+      elseif itype == "cmp" then
+        local lhs_reg = alloc[instr[2]]
+        local rhs = instr[3]
+
+        if type(rhs) == "number" then
+           | cmp Rq(lhs_reg), rhs
+        else
+           local rhs_reg = alloc[rhs]
+           | cmp Rq(lhs_reg), Rq(rhs_reg)
+        end
+
+      elseif itype == "load" then
+         local target = alloc(instr[2])
+         local offset = instr[3]
+         local bytes  = instr[4]
+
+         if bytes == 1 then
+            | movzx Rq(target_reg), byte [rdi + offset]
+         elseif bytes == 2 then
+            | movzx Rq(target_reg), word [rdi + offset]
+         else
+            | mov   Rd(target_reg), dword [rdi + offset]
+         end
+
+      elseif op == "add" then
+         local r1, r2 = alloc[instr[2]], alloc[instr[3]]
+         | add Rq(r1), Rq(r2)
+
+      elseif op == "mul" then
+         local r1, r2 = alloc[instr[2]], alloc[instr[3]]
+         | imul Rq(r1), Rq(r2)
+
+      elseif op == "add-i" then
+         local reg = alloc[instr[2]]
+         | add Rq(reg), expr[3]
+
+      elseif op == "mul-i" then
+         local r = alloc[expr[2]]
+         local const = expr[3]
+
+         if const == 2 then
+            | lea Rq(r), [Rq(r)*2]
+         elseif const == 4 then
+            | lea Rq(r), [Rq(r)*4]
+         elseif const == 8 then
+            | lea Rq(r), [Rq(r)*8]
+         elseif const == 3 then
+            | lea Rq(r), [Rq(r)+Rq(r)*2]
+         elseif const == 5 then
+            | lea Rq(r), [Rq(r)+Rq(r)*4]
+         elseif const == 7 then
+            | lea Rq(r), [Rq(r)+Rq(r)*8]
+         else
+            | imul Rq(r), const
+         end
+
+      elseif itype == "+3" then
+         local r1 = alloc[instr[2]]
+
+         -- expr2 is always a register
+         -- due to constant folding, only at most one of expr3
+         -- or expr4 can be a constant
+         if type(instr[3]) == "number" then
+            local r2 = alloc[instr[4]]
+            | lea Rq(r1), [Rq(r2)+instr[3]]
+         elseif type(instr[4]) == "number" then
+            local r2 = alloc[instr[3]]
+            | lea Rq(r1), [Rq(r2)+instr[4]]
+         else
+            local r2, r3 = alloc[instr[3]], alloc[instr[4]]
+            | lea Rq(r1), [Rq(r2)+Rq(r3)]
+         end
       end
 
-      if op == "if" then
-         -- TODO: abstract some of this label handling
-         local next_label = label_map[control[4]]
-
-         compile_relop(Dst, control[2], local_alloc)
-         compile_jmp(Dst, control[2], next_label)
-      elseif op == "return" then
-         local expr = control[2]
-
-         if #expr == 1 and expr[1] == "true" then
-            | jmp >1
-         elseif #expr == 1 and expr[1] == "false" then
-            | jmp >2
-         else
-            compile_relop(Dst, expr, local_alloc)
-            compile_jmp(Dst, expr)
-         end
       else
-	 error(string.format("NYI op %s", op))
+	 error(string.format("NYI instruction %s", itype))
       end
    end
 
    -- return true, false
    -- TODO: do this more cleverly
-   |1:
+   |=>(0):
    | mov rax, 0x1
    | jmp >3
-   |2:
+   |=>(1):
    | mov rax, 0x0
-   |3:
+   |=>(2):
 
    -- fix stack
-   if spilled_space > 0 then
-      | add rsp, spilled_space
-   end
+   --if spilled_space > 0 then
+   --   | add rsp, spilled_space
+   --end
    | ret
 
    local mcode, size = Dst:build()
@@ -274,7 +182,7 @@ function load(ssa, dump)
 end
 
 function selftest()
-   local is = require("pf.instruct")
+   local sel = require("pf.selection")
    local ra = require("pf.regalloc")
 
    -- `ip`
@@ -384,8 +292,8 @@ function selftest()
 
    local function test(ssa, pkt, regalloc)
       -- Compile and then call native function on the given packet
-      is.lower(ssa)
-      local f = compile(ssa, regalloc)
+      local instr = sel.select(ssa)
+      local f = compile(instr, regalloc)
       return f(pkt.packet, pkt.len)
    end
 

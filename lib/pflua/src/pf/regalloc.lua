@@ -105,29 +105,68 @@ local function live_intervals(instrs)
    return order
 end
 
--- Do register allocation with the given IR
--- TODO: this should handle block-local registers correctly
---       (greedy local allocation may be ok)
-function allocate_registers(ssa)
-   local intervals = live_intervals(ssa)
-   local allocation = { num_spilled = #intervals }
-   local spills = {}
+-- All available registers, tied to unix x64 ABI
+local caller_regs = {0, 1, 2, 8, 9, 10, 11}
+local callee_regs = {3, 12, 13, 14, 15}
+local num_regs = #caller_regs + #callee_regs
 
-   -- TODO: for now, spill all variables
-   for idx, interval in ipairs(intervals) do
-      spills[interval.name] = { spill = idx - 1 }
+local function is_free(seq, name)
+   for _, val in ipairs(seq) do
+      if val == name
+   end
+end
+
+local function insert_free(seq, name)
+end
+
+-- Do register allocation with the given IR
+function allocate(ir)
+   local intervals = live_intervals(ir)
+   local active = {}
+
+   -- caller-save registers, use these first
+   local free_caller = utils.dup(caller_regs)
+   -- callee-save registers, if we have to
+   local free_callee = utils.dup(callee_regs)
+
+   local allocation = { "len" = 6 } -- %rsi
+
+   local function expire_old(interval)
+      for _, active_interval in pairs(active) do
+         if active_interval.finish >= interval.start then
+            return
+         else
+            local name = active_interval.name
+            local reg = allocation[name]
+
+            table.remove(active, active_interval)
+            if caller_regs[allocation[name]] then
+               insert_free(free_caller, reg)
+            elseif callee_regs[allocation[name]] then
+               free_callee(free_callee, name)
+            else
+               error("unknown register")
+            end
+         end
+      end
    end
 
-   for _, label in ssa.order do
-      allocation[label] = spills
+   for _, interval in pairs(intervals) do
+      expire_old(active, allocation, interval)
+
+      if #free_caller == 0 and #free_callee == 0 then
+         -- TODO: do a spill
+      elseif #free_caller == 0 then
+         allocation[interval.name] = free_callee[1]
+      else
+         allocation[interval.name] = free_caller[1]
+      end
    end
 
    return allocation
 end
 
 function selftest()
-   local utils = require("pf.utils")
-
    local function test(instrs, expected)
       utils.assert_equals(expected, live_intervals(instrs))
    end
