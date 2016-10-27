@@ -172,7 +172,7 @@ function allocate(ir)
 
    local function expire_old(interval)
       for idx, active_interval in ipairs(active) do
-         if active_interval.finish >= interval.start then
+         if active_interval.finish > interval.start then
             return
          else
             local name = active_interval.name
@@ -247,15 +247,35 @@ function selftest()
         { "cmp", "v2", 6 },
         { "cjmp", "!=", 12 } }
 
+   local example_2 =
+      { { "label", 1 },
+        { "load", "r1", 12, 2 },
+        { "load", "r2", 14, 2 },
+        { "mov", "r3", "r1" },
+        { "mul", "r3", "r2" },
+        { "cmp", "r3", 1 },
+        { "cjmp", "!=", 4 } }
+
    test(example_1,
         { { name = "len", start = 1, finish = 14 },
           { name = "v1", start = 5, finish = 17 },
           { name = "r1", start = 9, finish = 10 },
           { name = "v2", start = 20, finish = 21 } })
 
+   test(example_2,
+        { { name = "len", start = 1, finish = 1 },
+          { name = "r1", start = 2, finish = 4 },
+          { name = "r2", start = 3, finish = 5 },
+          { name = "r3", start = 4, finish = 6 } })
+
    local function test(instrs, expected)
       utils.assert_equals(expected, allocate(instrs))
    end
 
-   test(example_1, { v1 = 0, r1 = 1, len = 6, v2 = 0})
+   test(example_1, { v1 = 0, r1 = 1, len = 6, v2 = 0 })
+   test(example_2, { r1 = 0, r2 = 1, r3 = 0, len = 6 })
+
+   local function test(instrs, expected)
+      utils.assert_equals(expected, allocate(instrs))
+   end
 end
