@@ -20,6 +20,7 @@
 --   * add-i
 --   * mul
 --   * mul-i
+--   * ntohs
 --   * cjmp
 
 module(...,package.seeall)
@@ -125,6 +126,13 @@ local function select_block(block, new_register, instructions)
          local tmp = new_register()
          emit({ "mov", tmp, reg2 })
          emit({ "add", tmp, reg3 })
+         return tmp
+
+      elseif expr[1] == "ntohs" then
+         local reg = select_arith(expr[2])
+         local tmp = new_register()
+         emit({ "mov", tmp, reg })
+         emit({ "ntohs", tmp })
          return tmp
 
       else
