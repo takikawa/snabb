@@ -20,7 +20,10 @@
 --   * add-i
 --   * mul
 --   * mul-i
+--   * and
+--   * and-i
 --   * ntohs
+--   * uint32
 --   * cjmp
 --   * noop (inserted by register allocation)
 
@@ -111,6 +114,20 @@ local function select_block(block, new_register, instructions)
          emit({ "mul-i", tmp, expr[3] })
          return tmp
 
+      -- & with immediate
+      elseif expr[1] == "&" and type(expr[2]) == "number" then
+         local reg3 = select_arith(expr[3])
+         local tmp = new_register()
+         emit({ "mov", tmp, reg3 })
+         emit({ "and-i", tmp, expr[2] })
+         return tmp
+      elseif expr[1] == "&" and type(expr[3]) == "number" then
+         local reg2 = select_arith(expr[2])
+         local tmp = new_register()
+         emit({ "mov", tmp, reg2 })
+         emit({ "and-i", tmp, expr[3] })
+         return tmp
+
       -- generic multiplication
       elseif expr[1] == "*" then
          local reg2 = select_arith(expr[2])
@@ -129,11 +146,26 @@ local function select_block(block, new_register, instructions)
          emit({ "add", tmp, reg3 })
          return tmp
 
+      elseif expr[1] == "&" then
+         local reg2 = select_arith(expr[2])
+         local reg3 = select_arith(expr[3])
+         local tmp = new_register()
+         emit({ "mov", tmp, reg2 })
+         emit({ "and", tmp, reg3 })
+         return tmp
+
       elseif expr[1] == "ntohs" then
          local reg = select_arith(expr[2])
          local tmp = new_register()
          emit({ "mov", tmp, reg })
          emit({ "ntohs", tmp })
+         return tmp
+
+      elseif expr[1] == "uint32" then
+         local reg = select_arith(expr[2])
+         local tmp = new_register()
+         emit({ "mov", tmp, reg })
+         emit({ "uint32", tmp })
          return tmp
 
       else
