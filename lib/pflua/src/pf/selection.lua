@@ -181,10 +181,10 @@ local function select_block(block, new_register, instructions)
 
    emit({ "label", label_num(block.label) })
 
-   -- assumes that a binding RHS always has a load in it
    for _, binding in ipairs(bindings) do
       local rhs = binding.value
-      emit({ "load", binding.name, rhs[2], rhs[3] })
+      local reg = select_arith(rhs)
+      emit({ "mov", binding.name, reg })
    end
 
    if control[1] == "return" then
@@ -345,7 +345,8 @@ function selftest()
           bindings = { { name = "v2", value = { "[]", 20, 1 } } },
           control = { "if", { "=", "v2", 6 }, "L12", "L13" } },
         { { "label", 9 },
-          { "load", "v2", 20, 1 },
+          { "load", "r1", 20, 1 },
+          { "mov", "v2", "r1" },
           { "cmp", "v2", 6 },
           { "cjmp", "!=", 12 } })
 
@@ -381,12 +382,13 @@ function selftest()
           { "cmp", "len", 34 },
           { "cjmp", "<", 4 },
           { "label", 3 },
-          { "load", "v1", 12, 2 },
+          { "load", "r1", 12, 2 },
+          { "mov", "v1", "r1" },
           { "cmp", "v1", 8 },
           { "cjmp", "!=", 6 },
           { "label", 5 },
-          { "load", "r1", 23, 1 },
-          { "cmp", "r1", 6 },
+          { "load", "r2", 23, 1 },
+          { "cmp", "r2", 6 },
           { "cjmp", "=", "true-label" },
           { "ret-false" },
           { "label", 6 },
@@ -396,7 +398,8 @@ function selftest()
           { "cmp", "v1", 56710 },
           { "cjmp", "!=", 10 },
           { "label", 9 },
-          { "load", "v2", 20, 1 },
+          { "load", "r3", 20, 1 },
+          { "mov", "v2", "r3" },
           { "cmp", "v2", 6 },
           { "cjmp", "!=", 12 } })
 end
