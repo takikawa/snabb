@@ -65,7 +65,7 @@ local function compile(instructions, alloc, dump)
       end
    end
 
-   for _, instr in ipairs(instructions) do
+   for idx, instr in ipairs(instructions) do
       local itype = instr[1]
 
       if itype == "label" then
@@ -176,7 +176,19 @@ local function compile(instructions, alloc, dump)
          | jmp =>(0)
 
       elseif itype == "ret-false" then
-         | jmp =>(1)
+         -- there tend to be a lot of duplicated
+         --   { "return", { "false" } }
+         -- forms so optimize them out here by peeking to
+         -- find repeats only separated by a label and only
+         -- generate the last one
+         local next_instr = instructions[idx + 1]
+         local next_next_instr = instructions[idx + 2]
+         if next_instr and next_instr[1] == "label" and
+            next_next_instr and next_next_instr[1] == "ret-false" then
+            -- do nothing
+         else
+            | jmp =>(1)
+         end
 
       elseif itype == "noop" then
          -- don't output anything
