@@ -94,9 +94,8 @@ function pp(expr, indent, suffix)
    elseif type(expr) == 'boolean' then
       print(indent..(expr and 'true' or 'false')..suffix)
    elseif is_array(expr) then
-      if #expr == 0 then
-         print(indent .. '{}' .. suffix)
-      elseif #expr == 1 then
+      assert(#expr > 0)
+      if #expr == 1 then
          if type(expr[1]) == 'table' then
             print(indent..'{')
             pp(expr[1], indent..'  ', ' }'..suffix)
@@ -115,13 +114,21 @@ function pp(expr, indent, suffix)
          pp(expr[#expr], indent, ' }'..suffix)
       end
    elseif type(expr) == 'table' then
-     print(indent..'{')
-     local new_indent = indent..'  '
-     for k, v in pairs(expr) do
-        -- TODO: make this right
-        print(new_indent..k..' = '..v)
+     if not next(expr) then
+        print(indent .. '{}' .. suffix)
+     else
+       print(indent..'{')
+       local new_indent = indent..'  '
+       for k, v in pairs(expr) do
+          if type(k) == "string" then
+             pp(v, new_indent..k..' = ', ',')
+          else
+             pp(k, new_indent..'[', '] = ')
+             pp(v, new_indent, ',')
+          end
+       end
+       print(indent..'}'..suffix)
      end
-     print(indent..'}'..suffix)
    else
       error("unsupported type "..type(expr))
    end
