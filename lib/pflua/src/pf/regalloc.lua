@@ -85,8 +85,8 @@ local function live_intervals(instrs)
          intervals[name] = interval
          table.insert(order, interval)
 
-         -- movs also read registers, so update endpoint
-         if itype == "mov" and type(instr[3]) == "string" then
+         -- movs/loads also read registers, so update endpoint
+         if type(instr[3]) == "string" then
             intervals[instr[3]].finish = idx
          end
 
@@ -362,6 +362,15 @@ function selftest()
         { "label", 4 },
         { "ret-false" } }
 
+   -- test that variables in load offsets are properly accounted for
+   local example_6 =
+      { { "label", 0 },
+        { "mov", "r1", 5 },
+        { "load", "v2", 12, 2 },
+        { "load", "v1", "r1", 2 },
+        { "cmp", "v1", 1 },
+        { "cmp", "v2", 2 } }
+
    test(example_1,
         { { name = "len", start = 1, finish = 14 },
           { name = "v1", start = 5, finish = 17 },
@@ -382,6 +391,12 @@ function selftest()
           { name = "r3", start = 21, finish = 22 },
           { name = "v2", start = 22, finish = 31 },
           { name = "r4", start = 34, finish = 35 } })
+
+   test(example_6,
+        { { name = "len", start = 1, finish = 1 },
+          { name = "r1", start = 2, finish = 4 },
+          { name = "v2", start = 3, finish = 6 },
+          { name = "v1", start = 4, finish = 5 } })
 
    local function test(instrs, expected)
       utils.assert_equals(expected, allocate(instrs))
