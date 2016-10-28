@@ -15,7 +15,7 @@ local ra  = require("pf.regalloc")
 -- Table keeping machine code alive to the GC.
 local anchor = {}
 
-local debug = true
+local debug = false
 
 local function compile_cjmp(Dst, op, target)
    if (target == "true-label") then
@@ -237,11 +237,18 @@ local function compile(instructions, alloc, dump)
    | ret
 
    local mcode, size = Dst:build()
+   local dumpstr = ""
    table.insert(anchor, mcode)
 
    if dump or debug then
+      dasm.dump(mcode, size, function(str) dumpstr = dumpstr..str end)
+   end
+
+   if debug then
       print("mcode dump:")
-      dasm.dump(mcode, size)
+      io.write(dumpstr)
+   elseif dump then
+      return dumpstr
    end
 
    return ffi.cast(ffi.typeof("bool(*)(unsigned char*, uint16_t)"),
@@ -251,7 +258,7 @@ end
 function load(ssa, dump)
    local ir = sel.select(ssa)
    local alloc = ra.allocate(ir)
-   local fun = compile(ir, alloc)
+   local fun = compile(ir, alloc, dump)
 
    return fun
 end
