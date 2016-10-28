@@ -33,6 +33,7 @@
 module(...,package.seeall)
 
 local utils = require('pf.utils')
+local verbose = os.getenv("PF_VERBOSE");
 
 -- ops that don't read from registers and don't contribute to liveness
 local non_read_ops = utils.set("ret-true", "ret-false", "label", "cjmp", "noop")
@@ -230,6 +231,10 @@ function allocate(ir)
    end
 
    delete_useless_movs(ir, allocation)
+
+   if verbose then
+      utils.pp({ "register_allocation", allocation })
+   end
 
    return allocation
 end
