@@ -106,8 +106,8 @@ local function live_intervals(instrs)
 end
 
 -- All available registers, tied to unix x64 ABI
-local caller_regs = {0, 1, 2, 6, 8, 9, 10, 11}
-local callee_regs = {3, 12, 13, 14, 15}
+local caller_regs = {11, 10, 9, 8, 6, 2, 1, 0}
+local callee_regs = {15, 14, 13, 12, 3}
 local num_regs = #caller_regs + #callee_regs
 
 -- Check if a register is free in the freelist
@@ -119,18 +119,6 @@ local function is_free(seq, reg)
    end
 
    return false
-end
-
--- Insert the free register in sorted position
-local function insert_free(freelist, reg)
-   for idx, reg2 in ipairs(freelist) do
-      if reg2 > reg then
-         table.insert(freelist, idx, reg)
-         return
-      end
-   end
-
-   table.insert(freelist, reg)
 end
 
 -- Remove the given register from the freelist
@@ -198,9 +186,10 @@ function allocate(ir)
 
             -- figure out which free list this register is supposed to be on
             if is_free(caller_regs, reg) then
-               insert_free(free_caller, reg)
+               table.insert(free_caller, reg)
+               print(string.format("put %d on the end", reg))
             elseif is_free(callee_regs, reg) then
-               insert_free(free_callee, reg)
+               table.insert(free_callee, reg)
             else
                error("unknown register")
             end
@@ -219,13 +208,17 @@ function allocate(ir)
         if #free_caller == 0 and #free_callee == 0 then
            -- TODO: do a spill
            error("No spilling yet")
+        -- newly freed registers are put at the end, so allocating from
+        -- the end will tend to produce better results since we want to
+        -- try eliminate movs with the same destination/source register
         elseif #free_caller ~= 0 then
-           allocation[name] = free_caller[1]
-           table.remove(free_caller, 1)
+           allocation[name] = free_caller[#free_caller]
+           print(free_caller[#free_caller])
+           table.remove(free_caller)
         else
            allocation[name] = free_callee[1]
            table.insert(allocation.callee_saves, free_callee[1])
-           table.remove(free_callee, 1)
+           table.remove(free_callee)
         end
       end
 
