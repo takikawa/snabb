@@ -175,25 +175,30 @@ function allocate(ir)
    remove_free(free_caller, 6)
 
    local function expire_old(interval)
+      local to_expire = {}
+
       for idx, active_interval in ipairs(active) do
          if active_interval.finish > interval.start then
-            return
+            break
          else
             local name = active_interval.name
             local reg = allocation[name]
 
-            table.remove(active, idx)
+            table.insert(to_expire, idx)
 
             -- figure out which free list this register is supposed to be on
             if is_free(caller_regs, reg) then
                table.insert(free_caller, reg)
-               print(string.format("put %d on the end", reg))
             elseif is_free(callee_regs, reg) then
                table.insert(free_callee, reg)
             else
                error("unknown register")
             end
          end
+      end
+
+      for i=1, #to_expire do
+         table.remove(active, to_expire[#to_expire - i + 1])
       end
    end
 
@@ -213,11 +218,11 @@ function allocate(ir)
         -- try eliminate movs with the same destination/source register
         elseif #free_caller ~= 0 then
            allocation[name] = free_caller[#free_caller]
-           print(free_caller[#free_caller])
            table.remove(free_caller)
         else
-           allocation[name] = free_callee[1]
-           table.insert(allocation.callee_saves, free_callee[1])
+           local idx = #free_callee
+           allocation[name] = free_callee[idx]
+           table.insert(allocation.callee_saves, free_callee[idx])
            table.remove(free_callee)
         end
       end
@@ -267,7 +272,8 @@ function selftest()
         { "mov", "r3", "r1" },
         { "mul", "r3", "r2" },
         { "cmp", "r3", 1 },
-        { "cjmp", "!=", 4 } }
+        { "cjmp", "!=", 4 },
+        { "cmp", "len", 1 } }
 
    -- this example isn't from real code, but tests what happens when
    -- there is higher register pressure
@@ -292,6 +298,66 @@ function selftest()
         { "cmp", "r8", 1 },
         { "cmp", "r9", 1 } }
 
+   -- test that tries to make movs use same dst/src
+   local example_4 =
+      { { "label", 1 },
+        { "load", "v1", 12, 2 },
+        { "cmp", "v1", 1 },
+        { "load", "r1", 12, 2 },
+        { "mov", "r2", "r1" },
+        { "cmp", "r2", 1 },
+        { "cmp", "len", 1 } }
+
+   -- full `tcp` example from more recent instruction selection
+   local example_5 =
+      { { "label", 0 },
+        { "cmp", "len", 34 },
+        { "cjmp", "<", 4 },
+        { "label", 3 },
+        { "load", "r1", 12, 2 },
+        { "mov", "v1", "r1" },
+        { "cmp", "v1", 8 },
+        { "cjmp", "!=", 6 },
+        { "label", 5 },
+        { "load", "r2", 23, 1 },
+        { "cmp", "r2", 6 },
+        { "cjmp", "=", "true-label" },
+        { "ret-false" },
+        { "label", 6 },
+        { "cmp", "len", 54 },
+        { "cjmp", "<", 8 },
+        { "label", 7 },
+        { "cmp", "v1", 56710 },
+        { "cjmp", "!=", 10 },
+        { "label", 9 },
+        { "load", "r3", 20, 1 },
+        { "mov", "v2", "r3" },
+        { "cmp", "v2", 6 },
+        { "cjmp", "!=", 12 },
+        { "label", 11 },
+        { "ret-true" },
+        { "label", 12 },
+        { "cmp", "len", 55 },
+        { "cjmp", "<", 14 },
+        { "label", 13 },
+        { "cmp", "v2", 44 },
+        { "cjmp", "!=", 16 },
+        { "label", 15 },
+        { "load", "r4", 54, 1 },
+        { "cmp", "r4", 6 },
+        { "cjmp", "=", "true-label" },
+        { "ret-false" },
+        { "label", 16 },
+        { "ret-false" },
+        { "label", 14 },
+        { "ret-false" },
+        { "label", 10 },
+        { "ret-false" },
+        { "label", 8 },
+        { "ret-false" },
+        { "label", 4 },
+        { "ret-false" } }
+
    test(example_1,
         { { name = "len", start = 1, finish = 14 },
           { name = "v1", start = 5, finish = 17 },
@@ -299,10 +365,19 @@ function selftest()
           { name = "v2", start = 20, finish = 21 } })
 
    test(example_2,
-        { { name = "len", start = 1, finish = 1 },
+        { { name = "len", start = 1, finish = 8 },
           { name = "r1", start = 2, finish = 4 },
           { name = "r2", start = 3, finish = 5 },
           { name = "r3", start = 4, finish = 6 } })
+
+   test(example_5,
+        { { name = "len", start = 1, finish = 28 },
+          { name = "r1", start = 5, finish = 6 },
+          { name = "v1", start = 6, finish = 18 },
+          { name = "r2", start = 10, finish = 11 },
+          { name = "r3", start = 21, finish = 22 },
+          { name = "v2", start = 22, finish = 31 },
+          { name = "r4", start = 34, finish = 35 } })
 
    local function test(instrs, expected)
       utils.assert_equals(expected, allocate(instrs))
@@ -310,6 +385,7 @@ function selftest()
 
    test(example_1,
         { v1 = 0, r1 = 1, len = 6, v2 = 0, callee_saves = {} })
+
    -- mutates example_2
    test(example_2,
         { r1 = 0, r2 = 1, r3 = 0, len = 6, callee_saves = {} })
@@ -320,12 +396,20 @@ function selftest()
                          { "noop" },
                          { "mul", "r3", "r2" },
                          { "cmp", "r3", 1 },
-                         { "cjmp", "!=", 4 } })
+                         { "cjmp", "!=", 4 },
+                         { "cmp", "len", 1 } })
 
    test(example_3,
-        { r1 = 0, r2 = 1, r3 = 2, r4 = 6, r5 = 8, r6 = 9,
+        { r1 = 6, r2 = 0, r3 = 1, r4 = 2, r5 = 8, r6 = 9,
           r7 = 10, r8 = 11, r9 = 3, len = 6,
           callee_saves = { 3 } })
+
+   test(example_4,
+        { v1 = 0, r1 = 0, len = 6, r2 = 0, callee_saves = {} })
+
+   test(example_5,
+        { len = 6, r1 = 0, v1 = 0, r2 = 1, r3 = 0,
+          v2 = 0, r4 = 0, callee_saves = {} })
 
    local function test(instrs, expected)
       utils.assert_equals(expected, allocate(instrs))
