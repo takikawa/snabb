@@ -34,9 +34,8 @@ module(...,package.seeall)
 
 local utils = require('pf.utils')
 
--- ops that read a register and contribute to liveness
-local read_ops = utils.set("cmp", "add", "add-3", "add-i", "add-i",
-                           "mul", "mul-i")
+-- ops that don't read from registers and don't contribute to liveness
+local non_read_ops = utils.set("ret-true", "ret-false", "label", "cjmp", "noop")
 
 -- Update the ends of intervals based on variable occurrences in
 -- the "control" ast
@@ -86,12 +85,12 @@ local function live_intervals(instrs)
          table.insert(order, interval)
 
          -- movs also read registers, so update endpoint
-         if itype == "mov" then
+         if itype == "mov" and type(instr[3]) == "string" then
             intervals[instr[3]].finish = idx
          end
 
       -- update liveness endpoint for instructions that read
-      elseif read_ops[itype] then
+      elseif not non_read_ops[itype] then
          for i=2, #instr do
             if type(instr[i]) == "string" then
                intervals[instr[i]].finish = idx
