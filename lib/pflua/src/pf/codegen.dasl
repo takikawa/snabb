@@ -91,12 +91,24 @@ local function compile(instructions, alloc, dump)
          local offset = instr[3]
          local bytes  = instr[4]
 
-         if bytes == 1 then
-            | movzx Rq(target), byte [rdi + offset]
-         elseif bytes == 2 then
-            | movzx Rq(target), word [rdi + offset]
+         if type(offset) == "number" then
+            if bytes == 1 then
+               | movzx Rq(target), byte [rdi + offset]
+            elseif bytes == 2 then
+               | movzx Rq(target), word [rdi + offset]
+            else
+               | mov   Rd(target), dword [rdi + offset]
+            end
          else
-            | mov   Rd(target), dword [rdi + offset]
+            local reg = alloc[offset]
+
+            if bytes == 1 then
+               | movzx Rq(target), byte [rdi + Rq(reg)]
+            elseif bytes == 2 then
+               | movzx Rq(target), word [rdi + Rq(reg)]
+            else
+               | mov   Rd(target), dword [rdi + Rq(reg)]
+            end
          end
 
       elseif itype == "mov" then

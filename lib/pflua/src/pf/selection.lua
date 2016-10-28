@@ -64,8 +64,14 @@ local function select_block(block, new_register, instructions)
          return expr
 
       elseif expr[1] == "[]" then
-         reg = new_register()
-         emit({ "load", reg, expr[2], expr[3] })
+         local reg = new_register()
+         local offset = expr[2]
+         if type(offset) == "table" then
+            local reg2 = select_arith(offset)
+            emit({ "load", reg, reg2, expr[3] })
+         else
+            emit({ "load", reg, offset, expr[3] })
+         end
          return reg
 
       -- three register addition
