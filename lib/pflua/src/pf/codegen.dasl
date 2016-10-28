@@ -116,6 +116,13 @@ local function compile(instructions, alloc, dump)
          local reg1, reg2 = alloc[instr[2]], alloc[instr[3]]
          | and Rq(reg1), Rq(reg2)
 
+      elseif itype == "shl" then
+         local reg1, reg2 = alloc[instr[2]], alloc[instr[3]]
+         -- TODO: we want to emit shlx here but dynasm doesn't
+         --       support it, so error for now
+         --| shlx Rq(reg1), Rq(reg1), Rq(reg2)
+         error("Unsupported instruction shlx")
+
       elseif itype == "add-i" then
          local reg = alloc[instr[2]]
          | add Rq(reg), instr[3]
@@ -145,6 +152,10 @@ local function compile(instructions, alloc, dump)
          assert(type(reg) == "number")
          assert(type(instr[3]) == "number")
          | and Rq(reg), instr[3]
+
+      elseif itype == "shl-i" then
+         local reg = alloc[instr[2]]
+         | shl Rq(reg), instr[3]
 
       elseif itype == "add-3" then
          local reg1 = alloc[instr[2]]

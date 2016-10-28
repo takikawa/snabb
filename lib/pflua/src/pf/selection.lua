@@ -22,6 +22,8 @@
 --   * mul-i
 --   * and
 --   * and-i
+--   * shl
+--   * shl-i
 --   * ntohs
 --   * uint32
 --   * cjmp
@@ -128,6 +130,29 @@ local function select_block(block, new_register, instructions)
          emit({ "and-i", tmp, expr[3] })
          return tmp
 
+      -- << with immediate
+      elseif expr[1] == "<<" and type(expr[2]) == "number" then
+         local reg3 = select_arith(expr[3])
+         local tmp = new_register()
+         local tmp2 = new_register()
+         emit({ "mov", tmp, reg3 })
+         emit({ "mov", tmp2, expr[2] })
+         emit({ "shl", tmp, tmp2 })
+         return tmp
+      elseif expr[1] == "<<" and type(expr[3]) == "number" then
+         local reg2 = select_arith(expr[2])
+         local imm = expr[3]
+         local tmp = new_register()
+         if imm <= 8 then
+            emit({ "mov", tmp, reg2 })
+            emit({ "shl-i", tmp, imm })
+         else
+            local tmp2 = new_register()
+            emit({ "mov", tmp2, imm })
+            emit({ "shl", tmp, tmp2 })
+         end
+         return tmp
+
       -- generic multiplication
       elseif expr[1] == "*" then
          local reg2 = select_arith(expr[2])
@@ -152,6 +177,14 @@ local function select_block(block, new_register, instructions)
          local tmp = new_register()
          emit({ "mov", tmp, reg2 })
          emit({ "and", tmp, reg3 })
+         return tmp
+
+      elseif expr[1] == "<<" then
+         local reg2 = select_arith(expr[2])
+         local reg3 = select_arith(expr[3])
+         local tmp = new_register()
+         emit({ "mov", tmp, reg2 })
+         emit({ "shl", tmp, reg3 })
          return tmp
 
       elseif expr[1] == "ntohs" then
