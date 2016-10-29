@@ -75,6 +75,9 @@ local function compile(instructions, alloc, dump)
       elseif itype == "cjmp" then
          compile_cjmp(Dst, instr[2], instr[3])
 
+      elseif itype == "jmp" then
+        | jmp =>(instr[2] + 3)
+
       elseif itype == "cmp" then
         local lhs_reg = alloc[instr[2]]
         local rhs = instr[3]

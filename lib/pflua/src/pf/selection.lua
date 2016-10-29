@@ -27,6 +27,7 @@
 --   * ntohs
 --   * uint32
 --   * cjmp
+--   * jmp
 --   * noop (inserted by register allocation)
 
 module(...,package.seeall)
@@ -49,7 +50,7 @@ end
 --
 -- Virtual registers are given names prefixed with "r" as in "r1".
 -- SSA variables remain prefixed with "v"
-local function select_block(block, new_register, instructions)
+local function select_block(block, new_register, instructions, next_label)
    local control  = block.control
    local bindings = block.bindings
 
@@ -242,7 +243,14 @@ local function select_block(block, new_register, instructions)
    elseif control[1] == "if" then
       local cond = control[2]
       select_bool(cond)
-      emit({ "cjmp", negate_op[cond[1]], label_num(control[4]) })
+      if control[3] ~= next_label and control[4] ~= next_label then
+         emit({ "cjmp", cond[1], label_num(control[3]) })
+         emit({ "jmp", label_num(control[4]) })
+      elseif control[3] == next_label then
+         emit({ "cjmp", negate_op[cond[1]], label_num(control[4]) })
+      elseif control[4] == next_label then
+         emit({ "cjmp", cond[1], label_num(control[3]) })
+      end
    end
 end
 
@@ -267,8 +275,9 @@ function select(ssa)
    local reg_num = 1
    local new_register = make_new_register(reg_num)
 
-   for _, label in pairs(ssa.order) do
-      select_block(blocks[label], new_register, instructions)
+   for idx, label in pairs(ssa.order) do
+      local next_label = ssa.order[idx+1]
+      select_block(blocks[label], new_register, instructions, next_label)
    end
 
    if verbose then
@@ -283,20 +292,22 @@ function selftest()
 
    -- tests of simplification/instruction selection pass on arithmetic
    -- and boolean expressions
-   local function test(block, expected)
+   local function test(block, expected, next_label)
       local instructions = {}
       local counter = 1
       local new_register = make_new_register(counter)
-      select_block(block, new_register, instructions)
+      -- next_label parameter only matters if there's an `if`
+      select_block(block, new_register, instructions, next_label)
       utils.assert_equals(instructions, expected)
    end
 
    test({ label = "L1",
           bindings = {},
           control = { "if", { ">=", "len", 14 }, "L4", "L5" } },
-       {  { "label", 0 },
-          { "cmp", "len", 14 },
-          { "cjmp", "<", 4 } })
+        {  { "label", 0 },
+           { "cmp", "len", 14 },
+           { "cjmp", "<", 4 } },
+        "L4")
 
    test({ label = "L4",
           bindings = {},
@@ -311,13 +322,13 @@ function selftest()
           bindings = {},
           control = { "return",
                       { "=", { "+", { "[]", 12, 2 }, 5 }, 1 } } },
-       {  { "label", 1 },
-          { "load", "r1", 12, 2 },
-          { "mov", "r2", "r1" },
-          { "add-i", "r2", 5 },
-          { "cmp", "r2", 1 },
-          { "cjmp", "=", "true-label"},
-          { "ret-false" } })
+        {  { "label", 1 },
+           { "load", "r1", 12, 2 },
+           { "mov", "r2", "r1" },
+           { "add-i", "r2", 5 },
+           { "cmp", "r2", 1 },
+           { "cjmp", "=", "true-label"},
+           { "ret-false" } })
 
    test({ label = "L2",
           bindings = {},
@@ -353,7 +364,8 @@ function selftest()
           { "mov", "r2", "r1" },
           { "add-i", "r2", 5 },
           { "cmp", "r2", 1 },
-          { "cjmp", "!=", 4 } })
+          { "cjmp", "!=", 4 } },
+        "L4")
 
    test({ label = "L2",
           bindings = {},
@@ -365,7 +377,8 @@ function selftest()
           { "mov", "r2", "r1" },
           { "mul-i", "r2", 5 },
           { "cmp", "r2", 1 },
-          { "cjmp", "!=", 4 } } )
+          { "cjmp", "!=", 4 } },
+         "L4")
 
    test({ label = "L2",
           bindings = {},
@@ -378,7 +391,8 @@ function selftest()
           { "mov", "r3", "r1" },
           { "mul", "r3", "r2" },
           { "cmp", "r3", 1 },
-          { "cjmp", "!=", 4 } })
+          { "cjmp", "!=", 4 } },
+        "L4")
 
    test({ label = "L10",
           bindings = { { name = "v2", value = { "[]", 20, 1 } } },
@@ -387,7 +401,8 @@ function selftest()
           { "load", "r1", 20, 1 },
           { "mov", "v2", "r1" },
           { "cmp", "v2", 6 },
-          { "cjmp", "!=", 12 } })
+          { "cjmp", "!=", 12 } },
+        "L12")
 
    -- test on a whole set of blocks
    local function test(block, expected)
@@ -397,7 +412,7 @@ function selftest()
 
    test(-- this is the first few blocks of the `tcp` filter
         { start = "L1",
-          order = { "L1", "L4", "L6", "L7", "L8", "L10" },
+          order = { "L1", "L4", "L6", "L7", "L8", "L10", "L12" },
           blocks =
              { L1 = { label = "L1",
 	              bindings = {},
@@ -416,7 +431,10 @@ function selftest()
 	              control = { "if", { "=", "v1", 56710 }, "L10", "L11" } },
                L10 = { label = "L10",
                        bindings = { { name = "v2", value = { "[]", 20, 1 } } },
-                       control = { "if", { "=", "v2", 6 }, "L12", "L13" } } } },
+                       control = { "if", { "=", "v2", 6 }, "L12", "L13" } },
+               L12 = { label = "L12",
+                       bindings = {},
+                       control = { "return", { "true" } } } } },
         { { "label", 0 },
           { "cmp", "len", 34 },
           { "cjmp", "<", 4 },
@@ -440,5 +458,7 @@ function selftest()
           { "load", "r3", 20, 1 },
           { "mov", "v2", "r3" },
           { "cmp", "v2", 6 },
-          { "cjmp", "!=", 12 } })
+          { "cjmp", "!=", 12 },
+          { "label", 11 },
+          { "ret-true" } })
 end
