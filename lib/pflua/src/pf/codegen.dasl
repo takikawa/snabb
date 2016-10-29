@@ -211,7 +211,10 @@ local function compile(instructions, alloc, dump)
          local next_next_instr = instructions[idx + 2]
          if next_instr and next_instr[1] == "label" and
             next_next_instr and next_next_instr[1] == "ret-false" then
-            -- do nothing
+            -- TODO: if we don't insert nops, bad things happen.
+            --       so the right place to do this optimization is
+            --       in an earlier phase of compilation...
+            | nop
          else
             | jmp =>(1)
          end
