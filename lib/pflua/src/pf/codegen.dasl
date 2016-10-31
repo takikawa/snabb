@@ -76,18 +76,18 @@ local function compile(instructions, alloc, dump)
          compile_cjmp(Dst, instr[2], instr[3])
 
       elseif itype == "jmp" then
-        | jmp =>(instr[2] + 3)
+         | jmp =>(instr[2] + 3)
 
       elseif itype == "cmp" then
-        local lhs_reg = alloc[instr[2]]
-        local rhs = instr[3]
+         local lhs_reg = alloc[instr[2]]
+         local rhs = instr[3]
 
-        if type(rhs) == "number" then
-           | cmp Rq(lhs_reg), rhs
-        else
-           local rhs_reg = alloc[rhs]
-           | cmp Rq(lhs_reg), Rq(rhs_reg)
-        end
+         if type(rhs) == "number" then
+            | cmp Rq(lhs_reg), rhs
+         else
+            local rhs_reg = alloc[rhs]
+            | cmp Rq(lhs_reg), Rq(rhs_reg)
+         end
 
       elseif itype == "load" then
          local target = alloc[instr[2]]
