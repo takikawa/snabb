@@ -421,4 +421,37 @@ function selftest()
                v6_pkts[16]))
 
    test(example_4, arp_pkts[1])
+
+   -- test starting from parsing all the way to codegen
+   local parse = require('pf.parse').parse
+   local expand = require('pf.expand').expand
+   local optimize = require('pf.optimize').optimize
+   local convert_anf = require('pf.anf').convert_anf
+   local convert_ssa = require('pf.ssa').convert_ssa
+
+   local function test(expr, pkt)
+      local ssa = convert_ssa(convert_anf(optimize(expand(parse(expr), "EN10MB"))))
+      local instr = sel.select(ssa)
+      local alloc = ra.allocate(instr)
+      local f = compile(instr, alloc)
+      return f(pkt.packet, pkt.len)
+   end
+
+   assert(not test("tcp port 3372", arp_pkts[1]))
+   assert(test("tcp port 3372", v4_pkts[1]))
+   assert(test("tcp port 3372", v4_pkts[2]))
+   assert(not test("tcp port 3372", v4_pkts[13]))
+   assert(not test("tcp port 3372", v4_pkts[18]))
+   assert(not test("tcp port 3372", v4_pkts[24]))
+
+   assert(not test("portrange 0-6000", arp_pkts[1]))
+   assert(test("portrange 0-6000", v4_pkts[1]))
+   assert(test("portrange 0-6000", v4_pkts[2]))
+   assert(test("portrange 0-6000", v4_pkts[13]))
+   assert(not test("portrange 0-30", v4_pkts[13]))
+   assert(not test("portrange 4000-9000", v4_pkts[13]))
+   assert(test("portrange 0-6000", v4_pkts[18]))
+   assert(test("portrange 0-6000", v4_pkts[24]))
+
+   print("OK")
 end
