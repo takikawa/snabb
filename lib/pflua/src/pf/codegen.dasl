@@ -206,22 +206,24 @@ local function compile(instructions, alloc, dump)
          | jmp =>(0)
 
       elseif itype == "ret-false" then
+         | nop
+         | jmp =>(1)
          -- there tend to be a lot of duplicated
          --   { "return", { "false" } }
          -- forms so optimize them out here by peeking to
          -- find repeats only separated by a label and only
          -- generate the last one
-         local next_instr = instructions[idx + 1]
-         local next_next_instr = instructions[idx + 2]
-         if next_instr and next_instr[1] == "label" and
-            next_next_instr and next_next_instr[1] == "ret-false" then
-            -- TODO: if we don't insert nops, bad things happen.
-            --       so the right place to do this optimization is
-            --       in an earlier phase of compilation...
-            | nop
-         else
-            | jmp =>(1)
-         end
+         --local next_instr = instructions[idx + 1]
+         --local next_next_instr = instructions[idx + 2]
+         --if next_instr and next_instr[1] == "label" and
+         --   next_next_instr and next_next_instr[1] == "ret-false" then
+         --   -- TODO: if we don't insert nops, bad things happen.
+         --   --       so the right place to do this optimization is
+         --   --       in an earlier phase of compilation...
+         --   | nop
+         --else
+         --   | jmp =>(1)
+         --end
 
       elseif itype == "noop" then
          -- don't output anything
