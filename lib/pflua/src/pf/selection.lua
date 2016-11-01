@@ -14,6 +14,7 @@
 --   * ret-false
 --   * cmp
 --   * mov
+--   * mov64
 --   * load
 --   * add
 --   * add-3
@@ -61,7 +62,16 @@ local function select_block(block, new_register, instructions, next_label)
    -- do instruction selection on an arithmetic expression
    -- returns the destination register or immediate
    local function select_arith(expr)
-      if type(expr) == "number" or type(expr) == "string" then
+      if type(expr) == "number" then
+         if expr > (2 ^ 31)  - 1 then
+            tmp = new_register()
+            emit({ "mov64", tmp, expr})
+            return tmp
+         else
+            return expr
+         end
+
+      elseif type(expr) == "string" then
          return expr
 
       elseif expr[1] == "[]" then

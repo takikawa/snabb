@@ -119,6 +119,11 @@ local function compile(instructions, alloc, dump)
          local src = alloc[instr[3]]
          | mov Rq(dst), Rq(src)
 
+      elseif itype == "mov64" then
+         local dst = alloc[instr[2]]
+         local imm = instr[3]
+         | mov64 Rq(dst), imm
+
       elseif itype == "add" then
          local reg1, reg2 = alloc[instr[2]], alloc[instr[3]]
          | add Rq(reg1), Rq(reg2)

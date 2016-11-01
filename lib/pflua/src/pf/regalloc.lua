@@ -76,7 +76,7 @@ local function live_intervals(instrs)
 
       -- movs and loads are the only instructions that result in
       -- new live intervals
-      if itype == "load" or itype == "mov" then
+      if itype == "load" or itype == "mov" or itype == "mov64" then
          local name = instr[2]
 	 local interval = { name = name,
 			    start = idx,
