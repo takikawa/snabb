@@ -458,5 +458,10 @@ function selftest()
    assert(test("portrange 0-6000", v4_pkts[18]))
    assert(test("portrange 0-6000", v4_pkts[24]))
 
+   assert(test("net 145.254.160.237", v4_pkts[1]))
+   assert(not test("net 178.79.150.233", v4_pkts[1]))
+   assert(test("net 145.254.160.0/24", v4_pkts[1]))
+   assert(not test("net 178.79.150.0/24", v4_pkts[1]))
+
    print("OK")
 end
