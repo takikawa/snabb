@@ -94,10 +94,6 @@ local function compile(instructions, alloc, dump)
          local offset = instr[3]
          local bytes  = instr[4]
 
-         -- TODO: Not sure why this alignment directive is needed here
-         --       but without it the wrong register is used in the
-         --       instructions below in some cases.
-         |.align 2
          if type(offset) == "number" then
             if bytes == 1 then
                | movzx Rq(target), byte [rdi + offset]
