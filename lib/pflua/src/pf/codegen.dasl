@@ -449,6 +449,8 @@ function selftest()
 
    assert(not test("portrange 0-6000", arp_pkts[1]))
    assert(test("portrange 0-6000", v4_pkts[1]))
+   assert(test("portrange 0-80", v4_pkts[1]))
+   assert(not test("portrange 100-2000", v4_pkts[1]))
    assert(test("portrange 0-6000", v4_pkts[2]))
    assert(test("portrange 0-6000", v4_pkts[13]))
    assert(not test("portrange 0-30", v4_pkts[13]))
