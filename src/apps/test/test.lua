@@ -1,6 +1,7 @@
 module(..., package.seeall)
 
-local link   = require("core.link")
+local link = require("core.link")
+local packet = require("core.packet")
 
 Test = {}
 Test.__index = Test
@@ -14,6 +15,7 @@ function Test:push()
       while not link.empty(self.input.input) do
          local p = link.receive(self.input.input)
          assert(p ~= false)
+         packet.free(p)
       end
    end
 end
