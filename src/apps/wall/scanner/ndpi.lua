@@ -1,14 +1,27 @@
 local scanner = require("apps.wall.scanner")
 local util    = require("apps.wall.util")
+local ctable  = require("lib.ctable")
+local ffi     = require("ffi")
 local ndpi    = require("ndpi")
 
 local rd32, ipv4_addr_cmp, ipv6_addr_cmp = util.rd32, util.ipv4_addr_cmp, util.ipv6_addr_cmp
 
-local NdpiFlow = subClass()
-NdpiFlow._name = "SnabbWall nDPI Flow"
+ffi.cdef[[
+   struct ndpi_flow {
+      ndpi_flow_t *_ndpi_flow;
+      ndpi_id_t *_ndpi_src_id;
+      ndpi_id_t *_ndpi_dst_id;
+      uint16_t protocol;
+      uint16_t proto_master;
+      uint32_t packets;
+      uint64_t last_seen;
+      uint8_t ipv4 : 1;
+      struct swall_flow_key key;
+   };
+]]
 
-function NdpiFlow:new(key)
-   local f = NdpiFlow:superClass().new(self)
+function ndpi_flow_new(key)
+   local f = ffi.new("struct ndpi_flow")
    f._ndpi_flow   = ndpi.flow()
    f._ndpi_src_id = ndpi.id()
    f._ndpi_dst_id = ndpi.id()
@@ -20,9 +33,9 @@ function NdpiFlow:new(key)
    return f
 end
 
-function NdpiFlow:update_counters(time)
-   self.packets = self.packets + 1
-   self.last_seen = time
+function ndpi_flow_update_counters(flow, time)
+   flow.packets = flow.packets + 1
+   flow.last_seen = time
 end
 
 local NdpiScanner = subClass(scanner.Scanner)
@@ -32,21 +45,29 @@ function NdpiScanner:new(ticks_per_second)
    local s = NdpiScanner:superClass().new(self)
    s.protocols = ndpi.protocol_bitmask():set_all()
    s._ndpi     = ndpi.detection_module(ticks_per_second or 1000):set_protocol_bitmask(s.protocols)
-   s._flows    = {}
+   s._flows    = ctable.new({ key_type = ffi.typeof("struct swall_flow_key"),
+                              value_type = ffi.typeof("struct ndpi_flow"),
+                              hash_fn = scanner.swall_flow_key_hash })
    return s
 end
 
 
 function NdpiScanner:get_flow(p)
    local key = (self:extract_packet_info(p))
-   return key and self._flows[key:hash()] or nil
+
+   local flow
+   if key then
+      flow = self._flows:lookup_ptr()
+      return (flow and flow.value) or nil
+   else
+      return nil
+   end
 end
 
 function NdpiScanner:flows()
-   local flows = self._flows
    return coroutine.wrap(function ()
-      for _, flow in pairs(flows) do
-         coroutine.yield(flow)
+      for flow in self._flows:iterate() do
+         coroutine.yield(flow.value)
       end
    end)
 end
@@ -68,14 +89,15 @@ function NdpiScanner:scan_packet(p, time)
    end
 
    -- Get an existing data flow or create a new one
-   local key_hash = key:hash()
-   local flow = self._flows[key_hash]
+   local flow = self._flows:lookup_ptr(key)
    if not flow then
-      flow = NdpiFlow:new(key)
-      self._flows[key_hash] = flow
+      flow = ndpi_flow_new(key)
+      self._flows:add(key, flow)
+   else
+      flow = flow.value
    end
 
-   flow:update_counters(time)
+   ndpi_flow_update_counters(flow, time)
    if flow.protocol ~= ndpi.protocol.PROTOCOL_UNKNOWN then
       return true, flow
    end

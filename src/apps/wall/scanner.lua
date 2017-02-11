@@ -63,19 +63,9 @@ UDP_DST_PORT_OFFSET  = 2
 
 
 ffi.cdef [[
-   struct swall_flow_key_ipv4 {
+   struct swall_flow_key {
+      uint8_t  ipv4;
       uint16_t vlan_id;
-      uint8_t  __pad;
-      uint8_t  ip_proto;
-      uint8_t  lo_addr[4];
-      uint8_t  hi_addr[4];
-      uint16_t lo_port;
-      uint16_t hi_port;
-   } __attribute__((packed));
-
-   struct swall_flow_key_ipv6 {
-      uint16_t vlan_id;
-      uint8_t  __pad;
       uint8_t  ip_proto;
       uint8_t  lo_addr[16];
       uint8_t  hi_addr[16];
@@ -96,33 +86,29 @@ local function hash32(i32)
 end
 
 local uint32_ptr_t = ffi.typeof("uint32_t*")
-local function make_cdata_hash_function(sizeof)
-   assert(sizeof >= 4)
-   assert(sizeof % 4 == 0)
+local sizeof = ffi.sizeof("struct swall_flow_key")
+local rounds = (sizeof / 4) - 1
+assert(sizeof >= 4)
+assert(sizeof % 4 == 0)
 
-   local rounds = (sizeof / 4) - 1
-   return function (cdata)
-      cdata = ffi.cast(uint32_ptr_t, cdata)
-      local h = hash32(cdata[0])
-      for i = 1, rounds do
-         h = hash32(bxor(h, hash32(cdata[i])))
-      end
-      return h
+function swall_flow_key_hash(cdata)
+   cdata = ffi.cast(uint32_ptr_t, cdata)
+   local h = hash32(cdata[0])
+   for i = 1, rounds do
+      h = hash32(bxor(h, hash32(cdata[i])))
    end
+   return tonumber(ffi.cast("uint32_t", h))
 end
 
-
-local flow_key_ipv4 = ffi.metatype("struct swall_flow_key_ipv4", {
+local flow_key = ffi.metatype("struct swall_flow_key", {
    __index = {
-      hash = make_cdata_hash_function(ffi.sizeof("struct swall_flow_key_ipv4")),
-      eth_type = function (self) return ETH_TYPE_IPv4 end,
-   }
-})
-
-local flow_key_ipv6 = ffi.metatype("struct swall_flow_key_ipv6", {
-   __index = {
-      hash = make_cdata_hash_function(ffi.sizeof("struct swall_flow_key_ipv6")),
-      eth_type = function (self) return ETH_TYPE_IPv6 end,
+      eth_type = function (self)
+                    if self.ipv4 == 1 then
+                       return ETH_TYPE_IPv4
+                    else
+                       return ETH_TYPE_IPv6
+                    end
+                 end
    }
 })
 
@@ -197,9 +183,11 @@ function Scanner:extract_packet_info(p)
       ip_offset = ip_offset + 4
    end
 
-   local key, src_addr, src_port, dst_addr, dst_port, ip_proto
+   local src_addr, src_port, dst_addr, dst_port, ip_proto
+   local key = flow_key()
+
    if eth_type == ETH_TYPE_IPv4 then
-      key = flow_key_ipv4()
+      key.ipv4 = true
       src_addr = p.data + ip_offset + IPv4_SRC_ADDR_OFFSET
       dst_addr = p.data + ip_offset + IPv4_DST_ADDR_OFFSET
       if ipv4_addr_cmp(src_addr, dst_addr) <= 0 then
@@ -220,7 +208,7 @@ function Scanner:extract_packet_info(p)
          dst_port = rd16(p.data + ip_payload_offset + UDP_DST_PORT_OFFSET)
       end
    elseif eth_type == ETH_TYPE_IPv6 then
-      key = flow_key_ipv6()
+      key.ipv4 = false
       src_addr = p.data + ip_offset + IPv6_SRC_ADDR_OFFSET
       dst_addr = p.data + ip_offset + IPv6_DST_ADDR_OFFSET
       if ipv6_addr_cmp(src_addr, dst_addr) <= 0 then
@@ -307,7 +295,7 @@ function selftest()
 
    do -- Test hashing of IPv4 flow keys
       local function make_ipv4_key()
-         local key = flow_key_ipv4()
+         local key = flow_key()
          key.vlan_id = 10
          key.ip_proto = IPv4_PROTO_UDP
          ffi.copy(key.lo_addr, ipv4:pton("10.0.0.1"), 4)
@@ -325,7 +313,7 @@ function selftest()
 
    do -- Test hashing of IPv6 flow keys
       local function make_ipv6_key()
-         local key = flow_key_ipv6()
+         local key = flow_key()
          key.vlan_id = 42
          key.ip_proto = IPv6_NEXTHDR_TCP
          ffi.copy(key.lo_addr, ipv6:pton("2001:fd::1"), 16)
