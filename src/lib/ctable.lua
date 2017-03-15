@@ -580,7 +580,7 @@ function compute_hash_fn(ctype)
          local h = 0
          local words = cast(uint32_ptr_t, key)
          local bytes = cast(uint8_ptr_t, key)
-         for i=1,size/4 do h = hash_32(bxor(h, words[i-1])) end
+         for i=0,size/4-1 do h = hash_32(bxor(h, words[i])) end
          for i=1,size%4 do h = hash_32(bxor(h, bytes[size-i])) end
          return h
       end
@@ -717,6 +717,27 @@ function selftest()
    check_bytes_equal(ffi.typeof('uint16_t[3]'), {1,1,1}, {1,1,2}) -- 6 byte
    check_bytes_equal(ffi.typeof('uint32_t[2]'), {1,1}, {1,2})     -- 8 byte
    check_bytes_equal(ffi.typeof('uint32_t[3]'), {1,1,1}, {1,1,2}) -- 12 byte
+
+   -- Check keys with computed hash functions inserted into a table
+   -- (this tests a bug in which the hash function was reading bogus data
+   --  off the end of the struct)
+   ffi.cdef[[struct point { uint32_t x; uint8_t y; } __attribute__((packed));]]
+
+   local params = {
+      key_type = ffi.typeof('struct point'),
+      value_type = ffi.typeof('uint32_t'),
+      hash_fn = compute_hash_fn('struct point'),
+      max_occupancy_rate = 0.4,
+      initial_size = ceil(occupancy / 0.4)
+   }
+   local ctab = new(params)
+
+   for i=1, occupancy - 1 do
+      local pt = ffi.new("struct point")
+      pt.x = i; pt.y = 1;
+      ctab:add(pt, 42ULL)
+   end
+   ctab:selfcheck()
 
    print("selftest: ok")
 end
