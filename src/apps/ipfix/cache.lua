@@ -44,6 +44,9 @@ ffi.cdef[[
    } __attribute__((packed));
 ]]
 
+-- Track available caches by name
+local caches = {}
+
 FlowCache = {}
 
 function FlowCache:new(config)
@@ -69,6 +72,14 @@ function FlowCache:new(config)
    o.table = ctable.new(params)
 
    return setmetatable(o, { __index = self })
+end
+
+function register_new_cache(config)
+   caches[assert(config.name)] = FlowCache:new(config)
+end
+
+function lookup_cache(name)
+   return caches[name]
 end
 
 function FlowCache:add(flow_key, flow_record)

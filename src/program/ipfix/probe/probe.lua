@@ -3,58 +3,24 @@
 module(..., package.seeall)
 
 local lib      = require("core.lib")
+local pci      = require("lib.hardware.pci")
 local cache    = require("apps.ipfix.cache")
+local conf     = require("apps.ipfix.config")
 local meter    = require("apps.ipfix.meter")
 local exporter = require("apps.ipfix.export")
-
--- apps that can be used as an input or output for the exporter
-in_out_apps = {}
-
-function in_out_apps.pcap (path)
-   return { input = "input",
-            output = "output" },
-          { require("apps.pcap.pcap").PcapReader, path }
-end
-
-function in_out_apps.raw (device)
-   return { input = "rx",
-            output = "tx" },
-          { require("apps.socket.raw").RawSocket, device }
-end
-
-function in_out_apps.intel10g (device)
-   local conf = { pciaddr = device }
-   return { input = "rx",
-            output = "tx" },
-          { require("apps.intel.intel_app").Intel82599, conf }
-end
 
 local long_opts = {
    help = "h",
    duration = "D",
-   port = "p",
-   transport = 1,
-   ["host-mac"] = "m",
-   ["host-ip"] = "a",
-   ["input-type"] = "i",
-   ["output-type"] = "o",
+   config = "f",
    ["netflow-v9"] = 0,
    ["ipfix"] = 0,
-   ["active-timeout"] = 1,
-   ["idle-timeout"] = 1
 }
 
 function run (args)
    local duration
-
-   local input_type, output_type = "intel10g", "intel10g"
-
-   local host_mac, host_ip
-   local collector_mac, colletor_ip
-   local port = 4739
-
-   local active_timeout, idle_timeout
    local ipfix_version = 10
+   local config_file
 
    -- TODO: better input validation
    local opt = {
@@ -65,81 +31,89 @@ function run (args)
       D = function (arg)
          duration = assert(tonumber(arg), "expected number for duration")
       end,
-      i = function (arg)
-         assert(in_out_apps[arg], "unknown input type")
-         input_type = arg
-      end,
-      o = function (arg)
-         assert(in_out_apps[arg], "unknown output type")
-         output_type = arg
-      end,
-      p = function (arg)
-         port = assert(tonumber(arg), "expected number for port")
-      end,
-      m = function (arg)
-         host_mac = arg
-      end,
-      a = function (arg)
-         host_ip = arg
-      end,
-      c = function (arg)
-         collector_ip = arg
-      end,
-      -- TODO: this should probably be superceded by using ARP
-      M = function (arg)
-         collector_mac = arg
-      end,
-      ["active-timeout"] = function (arg)
-         active_timeout =
-            assert(tonumber(arg), "expected number for active timeout")
-      end,
-      ["idle-timeout"] = function (arg)
-         idle_timeout =
-            assert(tonumber(arg), "expected number for idle timeout")
+      f = function (arg)
+         config_file = arg
       end,
       ipfix = function (arg)
          ipfix_version = 10
       end,
       ["netflow-v9"] = function (arg)
          ipfix_version = 9
-      end,
-      -- TODO: not implemented
-      ["transport"] = function (arg) end
+      end
    }
 
-   args = lib.dogetopt(args, opt, "hD:i:o:p:m:a:c:M:", long_opts)
-   if #args ~= 2 then
+   args = lib.dogetopt(args, opt, "hD:f:", long_opts)
+   if #args ~= 0 then
       print(require("program.ipfix.probe.README_inc"))
       main.exit(1)
    end
 
-   assert(host_mac, "--host-mac argument required")
-   assert(host_ip, "--host-ip argument required")
-   assert(collector_ip, "--collector argument required")
+   local yang_config = conf.load_ipfix_config(config_file)
 
-   local in_link, in_app   = in_out_apps[input_type](args[1])
-   local out_link, out_app = in_out_apps[output_type](args[2])
+   local obvs_points = assert(yang_config.ipfix.observation_point,
+                              "missing observation points")
 
-   local flow_cache      = cache.FlowCache:new({})
-   local meter_config    = { cache = flow_cache }
-   local exporter_config = { cache = flow_cache,
-                             active_timeout = active_timeout,
-                             idle_timeout = idle_timeout,
-                             ipfix_version = ipfix_version,
-                             exporter_mac = host_mac,
-                             exporter_ip = host_ip,
-                             collector_mac = collector_mac,
-                             collector_ip = collector_ip,
-                             collector_port = port }
+   if obvs_points.occupancy == 0 then
+      error("Expected at least one observation point configured")
+   end
+
    local c = config.new()
 
-   config.app(c, "source", unpack(in_app))
-   config.app(c, "sink", unpack(out_app))
-   config.app(c, "meter", meter.FlowMeter, meter_config)
-   config.app(c, "exporter", exporter.FlowExporter, exporter_config)
+   local interfaces = {}
+   pci.scan_devices()
+   for config in obvs_points:iterate() do
+      local app_name = string.format("meter-%s", config.name)
+      local src_name = string.format("source-%s", config.name)
+      local intf = assert(config.ifName, "ifName required")
+      local source
 
-   config.link(c, "source." .. in_link.output .. " -> meter.input")
-   config.link(c, "exporter.output -> sink." .. out_link.input)
+      -- if it's an interface name for a PCI device, then load up the driver
+      local device_info = pci.devices[intf]
+      if device_info and not interfaces[intf] then
+         source = { require(device_info.driver).driver, intf }
+      else
+         source = interfaces[intf]
+      end
+
+      -- otherwise assume it's a RawSocket name
+      source = { require("apps.socket.raw").RawSocket, intf }
+
+      config.app(c, app_name, meter.FlowMeter, config)
+      config.app(c, src_name, unpack(source))
+      config.link(c, src_name .. ".tx -> " .. app_name .. ".input")
+   end
+
+   local cache_configs = assert(yang_config.cache, "missing caches")
+   if cache_configs.occupancy == 0 then
+      error("Expected at least one cache configured")
+   end
+
+   for conf in cache_configs:iterate() do
+      cache.register_new_cache(conf)
+   end
+
+   local exporter_configs = assert(yang_config.exportingProcess)
+   for config in exporter_configs:iterate() do
+      local app_name  = string.format("exporter-%s", config.name)
+      local sink_name = string.format("sink-%s", config.name)
+      config.app(c, app_name, exporter.FlowExporter, config)
+
+      -- TODO: this code is similar to above, abstract it
+      local intf = assert(config.ifName, "ifName required")
+      local sink
+
+      local device_info = pci.devices[intf]
+      if device_info and not interfaces[intf] then
+         sink = { require(device_info.driver).driver, intf }
+      else
+         sink = interfaces[intf]
+      end
+
+      -- otherwise assume it's a RawSocket name
+      sink = { require("apps.socket.raw").RawSocket, intf }
+      config.app(c, sink_name, unpack(sink))
+      config.link(c, app_name .. ".output -> " .. sink_name .. ".rx")
+   end
 
    local done
    if not duration then
