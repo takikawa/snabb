@@ -71,7 +71,7 @@ function load_configuration(filename, opts)
       local compiled = result
       if opts.schema_name and opts.schema_name ~= compiled.schema_name then
          log('expected schema name %s in compiled file, but got %s',
-             opts.schema_name, compiled.schema.name)
+             opts.schema_name, compiled.schema_name)
          return
       end
       if opts.revision_date and opts.revision_date ~= schema.revision_date then
@@ -125,11 +125,11 @@ function load_configuration(filename, opts)
       local success, err = pcall(binary.compile_data_for_schema_by_name,
                                  opts.schema_name, conf, compiled_filename,
                                  source_mtime)
-      if not success then
+      if success then
+         log('wrote compiled configuration %s', compiled_filename)
+      else
          log('error saving compiled configuration %s: %s', compiled_filename, err)
       end
-
-      log('wrote compiled configuration %s', compiled_filename)
    end
 
    -- Done.

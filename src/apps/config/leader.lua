@@ -69,7 +69,6 @@ function Leader:new (conf)
 end
 
 function Leader:set_initial_configuration (configuration)
-   self.support.validate_config(configuration)
    self.current_configuration = configuration
    self.current_app_graph = self.setup_fn(configuration)
    self.current_in_place_dependencies = {}
@@ -115,28 +114,33 @@ function Leader:rpc_describe (args)
             capability = schema.get_default_capabilities() }
 end
 
-local function path_printer_for_grammar(grammar, path)
+local function path_printer_for_grammar(grammar, path, opts)
    local getter, subgrammar = path_mod.resolver(grammar, path)
-   local printer = data.data_printer_from_grammar(subgrammar)
+   local printer
+   if opts.format == "xpath" then
+      printer = data.xpath_printer_from_grammar(subgrammar, opts.print_default, path)
+   else
+      printer = data.data_printer_from_grammar(subgrammar, opts.print_default)
+   end
    return function(data, file)
       return printer(getter(data), file)
    end
 end
 
-local function path_printer_for_schema(schema, path)
-   return path_printer_for_grammar(data.data_grammar_from_schema(schema), path)
+local function path_printer_for_schema(schema, path, opts)
+   return path_printer_for_grammar(data.data_grammar_from_schema(schema), path, opts)
 end
 
-local function path_printer_for_schema_by_name(schema_name, path)
-   return path_printer_for_schema(yang.load_schema_by_name(schema_name), path)
+local function path_printer_for_schema_by_name(schema_name, path, opts)
+   return path_printer_for_schema(yang.load_schema_by_name(schema_name), path, opts)
 end
 
 function Leader:rpc_get_config (args)
    local function getter()
       if args.schema ~= self.schema_name then
-         return self:foreign_rpc_get_config(args.schema, args.path)
+         return self:foreign_rpc_get_config(args.schema, args.path, args)
       end
-      local printer = path_printer_for_schema_by_name(args.schema, args.path)
+      local printer = path_printer_for_schema_by_name(args.schema, args.path, args)
       local config = printer(self.current_configuration, yang.string_output_file())
       return { config = config }
    end
@@ -396,7 +400,6 @@ function compute_remove_config_fn (schema_name, path)
 end
 
 function Leader:notify_pre_update (config, verb, path, ...)
-   self.support.validate_update(config, verb, path, ...)
    for _,translator in pairs(self.support.translators) do
       translator.pre_update(config, verb, path, ...)
    end
@@ -407,7 +410,7 @@ function Leader:update_configuration (update_fn, verb, path, ...)
    local to_restart =
       self.support.compute_apps_to_restart_after_configuration_update (
          self.schema_name, self.current_configuration, verb, path,
-         self.current_in_place_dependencies)
+         self.current_in_place_dependencies, ...)
    local new_config = update_fn(self.current_configuration, ...)
    local new_app_graph = self.setup_fn(new_config)
    local actions = self.support.compute_config_actions(
@@ -442,20 +445,20 @@ function Leader:apply_translated_rpc_updates (updates)
    end
    return {}
 end
-function Leader:foreign_rpc_get_config (schema_name, path)
+function Leader:foreign_rpc_get_config (schema_name, path, args)
    path = path_mod.normalize_path(path)
    local translate = self:get_translator(schema_name)
    local foreign_config = translate.get_config(self.current_configuration)
-   local printer = path_printer_for_schema_by_name(schema_name, path)
+   local printer = path_printer_for_schema_by_name(schema_name, path, args)
    local config = printer(foreign_config, yang.string_output_file())
    return { config = config }
 end
-function Leader:foreign_rpc_get_state (schema_name, path)
+function Leader:foreign_rpc_get_state (schema_name, path, args)
    path = path_mod.normalize_path(path)
    local translate = self:get_translator(schema_name)
    local native_state = state.show_state(self.schema_name, S.getpid(), "/")
    local foreign_state = translate.get_state(native_state)
-   local printer = path_printer_for_schema_by_name(schema_name, path)
+   local printer = path_printer_for_schema_by_name(schema_name, path, args)
    local config = printer(foreign_state, yang.string_output_file())
    return { state = config }
 end
@@ -540,9 +543,9 @@ end
 function Leader:rpc_get_state (args)
    local function getter()
       if args.schema ~= self.schema_name then
-            return self:foreign_rpc_get_state(args.schema, args.path)
+            return self:foreign_rpc_get_state(args.schema, args.path, args)
       end
-      local printer = path_printer_for_schema_by_name(self.schema_name, args.path)
+      local printer = path_printer_for_schema_by_name(self.schema_name, args.path, args)
       local s = {}
       for _, follower in pairs(self.followers) do
          for k,v in pairs(state.show_state(self.schema_name, follower.pid, args.path)) do
