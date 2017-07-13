@@ -71,6 +71,7 @@ PFMRVLAN    0x0F610 +0x04*0..7      RW PF Mirror Rule VLAN
 PFMRVM      0x0F630 +0x04*0..7      RW PF Mirror Rule Pool
 PFVFRE      0x051E0 +0x04*0..1      RW PF VF Receive Enable
 PFVFTE      0x08110 +0x04*0..1      RW PF VF Transmit Enable
+PFVMTXSW    0x05180 +0x04*0..1    RW PF VM Tx Switch Loopback Enable
 PFVFSPOOF   0x08200 +0x04*0..7      RW PF VF Anti Spoof Control
 PFVMVIR     0x08000 +0x04*0..63     RW PF VM VLAN Insert Register
 PFVML2FLT   0x0F000 +0x04*0..63     RW PF VM L2 Control Register
@@ -116,6 +117,8 @@ RDT         0x01018 +0x40*0..63     RW Receive Descriptor Tail
 RDT         0x0D018 +0x40*64..127   RW Receive Descriptor Tail
 RXDCTL      0x01028 +0x40*0..63     RW Receive Descriptor Control
 RXDCTL      0x0D028 +0x40*64..127   RW Receive Descriptor Control
+RSCCTL      0x0102C +0x40*0..63     RW RSC Control
+RSCCTL      0x0D02C +0x40*64..127   RW RSC Control
 ]],
    singleton = [[
 AUTOC       0x042A0 -               RW Auto Negotiation Control
@@ -445,6 +448,7 @@ function Intel:init_rx_q ()
    if self.vmdq then
       -- packet splitting none, enable 4 RSS queues per pool
       self.r.PSRTYPE[self.poolnum](bits { RQPL=30 })
+      self.r.RSCCTL(0x0)
       -- multicast promiscuous, broadcast accept, accept untagged pkts
       self.r.PFVML2FLT[self.poolnum]:set(bits { MPE=28, BAM=27, AUPE=24 })
    end
@@ -527,6 +531,8 @@ function Intel:init_tx_q ()                               -- 4.5.10
       self.r.RTTDT1C(0x80)
       -- enables packet Tx for this VF's pool
       self.r.PFVFTE[math.floor(self.poolnum/33)]:set(bits{VFTE=self.poolnum%32})
+      self.r.PFVMTXSW[math.floor(self.poolnum/32)]:clr(bits{LLE=self.poolnum%32})
+      self.r.RTTBCNRC(0x00)
    end
 
    if self.r.DMATXCTL then
@@ -727,6 +733,14 @@ function Intel:stop ()
       self:unset_MAC()
       self:unset_VLAN()
       self:unset_mirror()
+
+      if self.rxq then
+         self.r.PFVFRE[math.floor(self.poolnum/32)]:clr(bits{VFRE=self.poolnum%32})
+      end
+
+      if self.txq then
+         self.r.PFVFTE[math.floor(self.poolnum/33)]:clr(bits{VFTE=self.poolnum%32})
+      end
    end
    self:unset_tx_rate()
    if self.fd:flock("nb, ex") then
