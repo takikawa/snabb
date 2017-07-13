@@ -89,6 +89,8 @@ function configureVMDq (c, device, ports)
       config.app(c, NIC, require(device.driver).driver,
                  {pciaddr = device.pciaddress,
                   vmdq = vmdq,
+                  rxq = 0, txq = i - 1,
+                  poolnum = i - 1,
                   macaddr = port.mac_address,
                   vlan = port.vlan})
       links[i] = {input = NIC..".input", output = NIC..".output"}

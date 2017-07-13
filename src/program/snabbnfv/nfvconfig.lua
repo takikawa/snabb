@@ -114,8 +114,24 @@ function load (file, pciaddr, sockpath, soft_bench)
          config.link(c, RxLimit..".output -> "..VM_rx)
          VM_rx = RxLimit..".input"
       end
+
+      -- Note: enabling the PcapWriter for the VM_rx made the test just hang instead
+      --       of actually logging anything. Not sure why, but logging the VM_tx is
+      --       possibly more interesting anyway.
+      --
+      --config.app(c, "pcaprx" .. name, require("apps.pcap.pcap").PcapWriter, "/tmp/rx" .. name .. ".pcap")
+      config.app(c, "pcaptx" .. name, require("apps.pcap.pcap").PcapWriter, "/tmp/tx" .. name .. ".pcap")
+      --config.app(c, "teerx" .. name, require("apps.basic.basic_apps").Tee)
+      config.app(c, "teetx" .. name, require("apps.basic.basic_apps").Tee)
+      --config.link(c, io_links[i].output.." -> teerx" .. name .. ".input")
+      --config.link(c, "teerx" .. name .. ".output1 -> "..VM_rx)
+      --config.link(c, "teerx" .. name .. ".output2 -> pcaprx" .. name .. ".input")
+
+      config.link(c, VM_tx.." -> teetx" .. name .. ".input")
+      config.link(c, "teetx" .. name .. ".output1 -> "..io_links[i].input)
+      config.link(c, "teetx" .. name .. ".output2 -> pcaptx" .. name .. ".input")
       config.link(c, io_links[i].output.." -> "..VM_rx)
-      config.link(c, VM_tx.." -> "..io_links[i].input)
+      --config.link(c, VM_tx.." -> "..io_links[i].input)
    end
 
    -- Return configuration c.
