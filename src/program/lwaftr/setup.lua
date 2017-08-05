@@ -256,7 +256,7 @@ function load_on_a_stick(c, conf, args)
       config.app(c, 'nic', Intel82599, {
          pciaddr = pciaddr,
          vmdq=true,
-         vlan=external_interface.vlan_tag,
+         vlan=queue.external_interface.vlan_tag,
          ndescriptors=args.ndescriptors,
          macaddr=ethernet:ntop(external_interface.mac)})
       if mirror then
