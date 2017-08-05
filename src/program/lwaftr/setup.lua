@@ -228,13 +228,13 @@ function load_phy(c, conf, v4_nic_name, v6_nic_name)
 
    config.app(c, v4_nic_name, Intel82599, {
       pciaddr=v4_pci,
-      vmdq=queue.external_interface.vlan_tag,
+      vmdq=true,
       vlan=queue.external_interface.vlan_tag,
       rxcounter=1,
       macaddr=ethernet:ntop(queue.external_interface.mac)})
    config.app(c, v6_nic_name, Intel82599, {
       pciaddr=v6_pci,
-      vmdq=queue.internal_interface.vlan_tag,
+      vmdq=true,
       vlan=queue.internal_interface.vlan_tag,
       rxcounter=1,
       macaddr = ethernet:ntop(queue.internal_interface.mac)})
@@ -278,12 +278,12 @@ function load_on_a_stick(c, conf, args)
    else
       config.app(c, v4_nic_name, Intel82599, {
          pciaddr = pciaddr,
-         vmdq=queue.external_interface.vlan_tag,
+         vmdq=true,
          vlan=queue.external_interface.vlan_tag,
          macaddr = ethernet:ntop(queue.external_interface.mac)})
       config.app(c, v6_nic_name, Intel82599, {
          pciaddr = pciaddr,
-         vmdq=queue.internal_interface.vlan_tag,
+         vmdq=true,
          vlan=queue.internal_interface.vlan_tag,
          macaddr = ethernet:ntop(queue.internal_interface.mac)})
 
