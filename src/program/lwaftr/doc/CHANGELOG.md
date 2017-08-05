@@ -1,6 +1,29 @@
 # Change Log
 
-## [3.1.6] - 2017-01-20
+## [2017.07.01] - 2017-08-04
+
+* New YANG schema snabb-softwire-v2 replaces old snabb-softwire-v1
+  schema.
+
+  The new schema has support for multiple worker processes running on
+  different PCI interfaces, though this support has not yet landed in
+  the data-plane itself.  See src/lib/yang/snabb-softwire-v2.lua for
+  full details.
+
+  Use "snabb lwaftr migrate-configuration" to migrate old
+  configurations.  
+
+* New version numbering scheme which includes the Snabb version the
+  lwaftr is based off and a lwaftr specific version number which is
+  reset upon merging a newer version of Snabb from upstream.
+
+* Improve configuration migration system.
+
+## [3.1.8] - 2017-03-10
+
+* Retry ARP and NDP resolution indefinitely.
+
+## [3.1.7] - 2017-01-20
 
 * Reverts commit 86b9835 ("Remove end-addr in psid-map"), which 
   introduced a severe regression that caused high packet loss due
