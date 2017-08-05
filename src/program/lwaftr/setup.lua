@@ -258,7 +258,7 @@ function load_on_a_stick(c, conf, args)
          vmdq=true,
          vlan=queue.external_interface.vlan_tag,
          ndescriptors=args.ndescriptors,
-         macaddr=ethernet:ntop(external_interface.mac)})
+         macaddr = ethernet:ntop(queue.external_interface.mac)})
       if mirror then
          local Tap = require("apps.tap.tap").Tap
          local ifname = mirror
