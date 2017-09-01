@@ -442,6 +442,7 @@ function Intel:init_rx_q ()
    self.rxqueue = ffi.new("struct packet *[?]", self.ndesc)
    self.rdh = 0
    self.rdt = 0
+   self.rxnext = 0
    -- setup 4.5.9
    local rxdesc_ring_t = ffi.typeof("$[$]", rxdesc_t, self.ndesc)
    self.rxdesc = ffi.cast(ffi.typeof("$&", rxdesc_ring_t),
@@ -612,31 +613,63 @@ function Intel:push ()
 end
 
 function Intel:pull ()
-   if not self.rxq then return end
-   local lo = self.output["output"]
-   if lo == nil then return end
+  if not self.rxq then return end
+  local lo = self.output["output"]
+  if lo == nil then return end
 
-   local pkts = 0
-   while band(self.rxdesc[self.rdt].status, 0x01) == 1 and pkts < engine.pull_npackets do
-      local p = self.rxqueue[self.rdt]
-      p.length = self.rxdesc[self.rdt].length
-      link.transmit(lo, p)
+  self:sync_receive()
 
-      local np = packet.allocate()
-      self.rxqueue[self.rdt] = np
-      self.rxdesc[self.rdt].address = tophysical(np.data)
-      self.rxdesc[self.rdt].status = 0
+  for i = 1, engine.pull_npackets do
+    if not self:can_receive() then break end
+    transmit(lo, self:receive())
+  end
+  self:add_receive_buffers()
 
-      self.rdt = band(self.rdt + 1, self.ndesc-1)
-      pkts = pkts + 1
-   end
-   -- This avoids RDT == RDH when every descriptor is available.
-   self.r.RDT(band(self.rdt - 1, self.ndesc-1))
+  -- Sync device statistics if we are master.
+  if self.run_stats and self.sync_timer() then
+    self:sync_stats()
+  end
+end
 
-   -- Sync device statistics if we are master.
-   if self.run_stats and self.sync_timer() then
-      self:sync_stats()
-   end
+function Intel:sync_receive ()
+  -- XXX I have been surprised to see RDH = num_descriptors,
+  --     must check what that means. -luke
+  self.rdh = math.min(self.r.RDH(), self.ndesc-1)
+  assert(self.rdh < self.ndesc)
+  C.full_memory_barrier()
+  self.r.RDT(self.rdt)
+end
+
+function Intel:add_receive_buffers ()
+  while self:can_add_receive_buffer() do
+    self:add_receive_buffer(packet.allocate())
+  end
+end
+
+function Intel:receive ()
+  assert(self:can_receive())
+  local wb = self.rxdesc[self.rxnext]
+  local p = self.rxqueue[self.rxnext]
+  p.length = wb.length
+  self.rxqueue[self.rxnext] = nil
+  self.rxnext = band(self.rxnext + 1, self.ndesc - 1)
+  return p
+end
+
+function Intel:can_receive ()
+  return self.rxnext ~= self.rdh and band(self.rxdesc[self.rxnext].status, 0x01) == 1
+end
+
+function Intel:can_add_receive_buffer ()
+  return band(self.rdt + 1, self.ndesc - 1) ~= self.rxnext
+end
+
+function Intel:add_receive_buffer (p)
+  assert(self:can_add_receive_buffer())
+  local desc = self.rxdesc[self.rdt]
+  desc.address, desc.status = tophysical(p.data), 0
+  self.rxqueue[self.rdt] = p
+  self.rdt = band(self.rdt + 1, self.ndesc - 1)
 end
 
 function Intel:unlock_sw_sem()
