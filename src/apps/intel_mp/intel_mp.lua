@@ -423,14 +423,22 @@ function Intel:wait_linkup (timeout)
    return false
 end
 
-rxdesc_t = ffi.typeof([[
-struct {
-   uint64_t address;
-   uint16_t length, cksum;
-   uint8_t status, errors;
-   uint16_t vlan;
-} __attribute__((packed))
-]])
+rxdesc_t = ffi.typeof [[
+  union {
+  struct {
+  uint64_t address;
+  uint64_t dd;
+  } __attribute__((packed)) data;
+  struct {
+  uint16_t rsstype_packet_type;
+  uint16_t rsccnt_hdrlen_sph;
+  uint32_t xargs;
+  uint32_t xstatus_xerror;
+  uint16_t pkt_len;
+  uint16_t vlan;
+  } __attribute__((packed)) wb;
+  }
+  ]]
 
 function Intel:init_rx_q ()
    if not self.rxq then return end
@@ -461,20 +469,9 @@ function Intel:init_rx_q ()
    self.r.RDBAH(tophysical(self.rxdesc) / 2^32)
    self.r.RDLEN(self.ndesc * ffi.sizeof(rxdesc_t))
 
-   for i = 0, self.ndesc-1 do
-      local p= packet.allocate()
-      self.rxqueue[i]= p
-      self.rxdesc[i].address= tophysical(p.data)
-      self.rxdesc[i].status= 0
-   end
-   self.r.SRRCTL(0)
-   self.r.SRRCTL:set(bits {
-      -- Set packet buff size to 0b1010 kbytes
-      BSIZEPACKET1 = 1,
-      BSIZEPACKET3 = 3,
-      -- Drop packets when no descriptors
-      Drop_En = self:offset("SRRCTL", "Drop_En")
-   })
+   --self.r.SRRCTL(0)
+   self.r.SRRCTL(bits({DesctypeLSB=25}, 31))
+   self.r.SRRCTL:set(bits({Drop_En=28})) -- Enable RX queue drop counter
    self:lock_sw_sem()
 
    -- enable VLAN tag stripping in VMDq mode
@@ -621,7 +618,7 @@ function Intel:pull ()
 
   for i = 1, engine.pull_npackets do
     if not self:can_receive() then break end
-    transmit(lo, self:receive())
+    link.transmit(lo, self:receive())
   end
   self:add_receive_buffers()
 
@@ -648,16 +645,16 @@ end
 
 function Intel:receive ()
   assert(self:can_receive())
-  local wb = self.rxdesc[self.rxnext]
+  local wb = self.rxdesc[self.rxnext].wb
   local p = self.rxqueue[self.rxnext]
-  p.length = wb.length
+  p.length = wb.pkt_len
   self.rxqueue[self.rxnext] = nil
   self.rxnext = band(self.rxnext + 1, self.ndesc - 1)
   return p
 end
 
 function Intel:can_receive ()
-  return self.rxnext ~= self.rdh and band(self.rxdesc[self.rxnext].status, 0x01) == 1
+  return self.rxnext ~= self.rdh and band(self.rxdesc[self.rxnext].wb.xstatus_xerror, 1) == 1
 end
 
 function Intel:can_add_receive_buffer ()
@@ -666,8 +663,8 @@ end
 
 function Intel:add_receive_buffer (p)
   assert(self:can_add_receive_buffer())
-  local desc = self.rxdesc[self.rdt]
-  desc.address, desc.status = tophysical(p.data), 0
+  local desc = self.rxdesc[self.rdt].data
+  desc.address, desc.dd = tophysical(p.data), 0
   self.rxqueue[self.rdt] = p
   self.rdt = band(self.rdt + 1, self.ndesc - 1)
 end
