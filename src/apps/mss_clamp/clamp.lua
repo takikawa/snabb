@@ -77,12 +77,21 @@ end
 function selftest()
    local dgram = datagram:new()
    local dgram2 = datagram:new()
+   local dgram3 = datagram:new()
    local eth_h = ether:new({type=IPV4_ETHERTYPE})
    local ip_h = ipv4:new({dst=ipv4:pton("192.168.1.2"),
                           src=ipv4:pton("192.168.1.1"),
                           protocol=6})
    local tcp_syn_h = tcp:new({src_port=5000, dst_port=80, offset=5, syn=1})
    local tcp_non_syn_h = tcp:new({src_port=5000, dst_port=80, offset=5, syn=0})
+   local tcp_mss_h = tcp:new({src_port=5000, dst_port=80,
+                              offset=5+ffi.sizeof(mss_payload_t),
+                              syn=1})
+
+   -- put in a fairly standard MSS payload to test
+   local payload = ffi.new(mss_payload_t)
+   ffi.copy(payload, mss_payload, ffi.sizeof(mss_payload_t))
+   payload.mss = htonl(1460)
 
    dgram:push(tcp_syn_h)
    dgram:push(ip_h)
@@ -90,15 +99,22 @@ function selftest()
    dgram2:push(tcp_non_syn_h)
    dgram2:push(ip_h)
    dgram2:push(eth_h)
+   dgram3:payload(payload, ffi.sizeof(mss_payload_t))
+   dgram3:push(tcp_mss_h)
+   dgram3:push(ip_h)
+   dgram3:push(eth_h)
 
    local pkt = dgram:packet()
    local pkt2 = dgram2:packet()
+   local pkt3 = dgram3:packet()
    local copy = packet.clone(pkt)
    local copy2 = packet.clone(pkt2)
+   local copy3 = packet.clone(pkt3)
 
-   local clamper = MSSClamp:new({mtu = 1490})
+   local clamper = MSSClamp:new({mtu = 1300})
    clamper:clamp(copy)
    clamper:clamp(copy2)
+   clamper:clamp(copy3)
 
    assert(not lib.equal(copy, pkt), "expected unequal pkts")
    assert(copy.length == pkt.length + ffi.sizeof(mss_payload),
@@ -106,4 +122,6 @@ function selftest()
                         pkt.length + ffi.sizeof(mss_payload),
                         copy.length))
    assert(lib.equal(copy2, pkt2), "expected unchanged pkt")
+   assert(not lib.equal(copy3, pkt3), "expected unequal pkts")
+   assert(copy3.length == pkt3.length, "expected equal size pkts")
 end
