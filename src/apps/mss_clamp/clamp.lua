@@ -65,10 +65,33 @@ function MSSClamp:clamp(pkt)
       if (ip_h:protocol() == TCP_PROTOCOL_NUMBER) then
          local tcp_h = dgram:parse_match()
          if (tcp_h:syn() == 1) then
+            local payload_ptr = dgram:payload()
+            local found_mss = false
+            local option_len = tcp_h:offset() * 4 - tcp_h:sizeof()
             mss_payload.mss = htonl(self.mtu);
-            tcp_h:offset(tcp_h:offset() + ffi.sizeof(mss_payload_t))
-            dgram:payload(ffi.cast("uint8_t*", mss_payload),
-                          ffi.sizeof(mss_payload_t))
+            -- if there are TCP options, find MSS and modify
+            if option_len > 0 then
+               while payload_ptr < payload_ptr + option_len do
+                  local option_kind = payload_ptr[0]
+                  if option_kind == 2 then
+                     ffi.copy(payload_ptr, mss_payload, ffi.sizeof(mss_payload_t))
+                     found_mss = true
+                     break
+                  elseif option_kind <= 1 then
+                     payload_ptr = payload_ptr + 1
+                  else
+                     local option_len = payload_ptr[2]
+                     payload_ptr = payload_ptr + 2 + option_len
+                  end
+               end
+            end
+            -- otherwise push a new option
+            if not found_mss then
+               dgram:payload(mss_payload, ffi.sizeof(mss_payload_t))
+               tcp_h:offset(tcp_h:offset() + ffi.sizeof(mss_payload_t))
+               option_len = option_len + ffi.sizeof(mss_payload_t)
+            end
+            tcp_h:checksum(dgram:payload(), option_len, ip_h)
          end
       end
    end
@@ -116,12 +139,18 @@ function selftest()
    clamper:clamp(copy2)
    clamper:clamp(copy3)
 
-   assert(not lib.equal(copy, pkt), "expected unequal pkts")
+   local function pkt_equal(p1, p2)
+      local size = p1.length
+      if size ~= p2.length then return false end
+      return C.memcmp(p1.data, p2.data, size)
+   end
+
+   assert(not pkt_equal(copy, pkt), "test1: expected unequal pkts")
    assert(copy.length == pkt.length + ffi.sizeof(mss_payload),
-          string.format("expected pkt size %d, got %d",
+          string.format("test1: expected pkt size %d, got %d",
                         pkt.length + ffi.sizeof(mss_payload),
                         copy.length))
-   assert(lib.equal(copy2, pkt2), "expected unchanged pkt")
-   assert(not lib.equal(copy3, pkt3), "expected unequal pkts")
-   assert(copy3.length == pkt3.length, "expected equal size pkts")
+   assert(pkt_equal(copy2, pkt2), "test2: expected unchanged pkt")
+   assert(not pkt_equal(copy3, pkt), "test3: expected unequal pkts")
+   assert(copy3.length == pkt3.length, "test3: expected equal size pkts")
 end
