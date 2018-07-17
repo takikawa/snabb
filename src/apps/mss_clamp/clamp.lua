@@ -25,7 +25,8 @@ local TCP_PROTOCOL_NUMBER = 0x06
 MSSClamp = {}
 
 function MSSClamp:new(config)
-   local o = { mtu = config.mtu }
+   assert(config.mss, "MSS argument is required")
+   local o = { mss = config.mss }
    return setmetatable(o, { __index = self })
 end
 
@@ -45,15 +46,13 @@ local mss_payload_t = ffi.typeof([[
    struct {
       uint8_t kind;
       uint8_t length;
-      uint32_t mss;
-      uint16_t pad;
+      uint16_t mss;
    } __attribute__((packed))
 ]])
 
 local mss_payload = ffi.new(mss_payload_t)
 mss_payload.kind = 0x02
 mss_payload.length = 0x04
-mss_payload.pad = 0x00
 
 -- given a packet, if it's a TCP packet then adjust MSS to the app's config
 -- otherwise don't touch it
@@ -68,7 +67,7 @@ function MSSClamp:clamp(pkt)
             local payload_ptr = dgram:payload()
             local found_mss = false
             local option_len = tcp_h:offset() * 4 - tcp_h:sizeof()
-            mss_payload.mss = htonl(self.mtu);
+            mss_payload.mss = htons(self.mss);
             -- if there are TCP options, find MSS and modify
             if option_len > 0 then
                while payload_ptr < payload_ptr + option_len do
@@ -108,13 +107,13 @@ function selftest()
    local tcp_syn_h = tcp:new({src_port=5000, dst_port=80, offset=5, syn=1})
    local tcp_non_syn_h = tcp:new({src_port=5000, dst_port=80, offset=5, syn=0})
    local tcp_mss_h = tcp:new({src_port=5000, dst_port=80,
-                              offset=5+ffi.sizeof(mss_payload_t),
+                              offset=5+ffi.sizeof(mss_payload_t)/8,
                               syn=1})
 
    -- put in a fairly standard MSS payload to test
    local payload = ffi.new(mss_payload_t)
    ffi.copy(payload, mss_payload, ffi.sizeof(mss_payload_t))
-   payload.mss = htonl(1460)
+   payload.mss = htons(1460)
 
    dgram:push(tcp_syn_h)
    dgram:push(ip_h)
@@ -134,7 +133,7 @@ function selftest()
    local copy2 = packet.clone(pkt2)
    local copy3 = packet.clone(pkt3)
 
-   local clamper = MSSClamp:new({mtu = 1300})
+   local clamper = MSSClamp:new({mss = 1300})
    clamper:clamp(copy)
    clamper:clamp(copy2)
    clamper:clamp(copy3)
