@@ -61,7 +61,8 @@ function MSSClamp:clamp(pkt)
    local eth_h = dgram:parse_match()
    if (eth_h:type() == IPV4_ETHERTYPE or eth_h:type() == IPV6_ETHERTYPE) then
       local ip_h = dgram:parse_match()
-      if (ip_h:protocol() == TCP_PROTOCOL_NUMBER) then
+      if ((ip_h.protocol and ip_h:protocol() == TCP_PROTOCOL_NUMBER) or
+          (ip_h.next_header and ip_h:next_header() == TCP_PROTOCOL_NUMBER)) then
          local tcp_h = dgram:parse_match()
          if (tcp_h:syn() == 1) then
             local payload_ptr = dgram:payload()
