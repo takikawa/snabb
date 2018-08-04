@@ -1226,7 +1226,7 @@ function Intel1g:set_txstats () return end
 -- enable VMDq mode, see 4.6.11.1
 function Intel1g:vmdq_enable ()
    -- enable legacy control flow, VLAN mode
-   self.r.CTRL:set(bits { RFCE=27, TFCE=28, VME=30 })
+   self.r.CTRL:set(bits { RFCE=27, TFCE=28 })
 
    -- 4.6.11.1.1 Global Filtering and Offload Capabilities
    assert(self.registers == "i350", "VMDq not supported by "..self.registers)
