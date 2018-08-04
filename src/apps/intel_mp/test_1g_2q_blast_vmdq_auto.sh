@@ -18,7 +18,7 @@ kill -9 $BLAST
 
 # both queues should see packets
 [[ `cat results.* | grep "^GPRC" | awk '{print $2}'` -gt 10000 ]] &&\
-[[ `cat results.0 | grep -m 1 bpp | awk '{print $11}'` -gt 0 ]] &&\
-[[ `cat results.1 | grep -m 1 bpp | awk '{print $11}'` -gt 0 ]]
+[[ `cat results.0 | grep -m 1 fpb | awk '{print $9}'` -gt 0 ]] &&\
+[[ `cat results.1 | grep -m 1 fpb | awk '{print $9}'` -gt 0 ]]
 
 exit $?
