@@ -6,6 +6,7 @@ snabb lwaftr generate-configuration <ipv4> <num_ipv4s> <br_address> <b4> <psid_l
 Arguments:
 
    --output <filename>     Output filename (snabb-softwire-v2 configuration file).
+   --include <filename>    Includes config from filename (and avoid predefined values).
 
 Examples:
 
@@ -23,7 +24,7 @@ Examples:
 
 When the output file is a configuration file, it contains predefined values
 for "external-interface", "internal-interface" and "instance" containers which
-will be needed to change:
+will be needed to change (unless --input is given):
 
    instance {
        device test;

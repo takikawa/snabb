@@ -99,7 +99,18 @@ local function parse_args(args)
       end
    end
    function handlers.h() show_usage(0) end
-   args = lib.dogetopt(args, handlers, "ho:", { help="h" , output="o" })
+   function handlers.i(arg)
+      local fd = assert(io.open(arg, "r"),
+         ("Couldn't find %s"):format(arg))
+      function w:include()
+        for line in fd:lines() do
+           w:ln(line)
+        end
+        fd:close()
+      end
+   end
+   args = lib.dogetopt(args, handlers, "hio:",
+                       { help="h" , output="o" , include="i" })
    if #args < 1 or #args > 6 then show_usage(1) end
    return unpack(args)
 end
@@ -212,9 +223,13 @@ function run(args)
       }
    })
    w:unindent() w:ln("}")
-   external_interface(w)
-   internal_interface(w)
-   instance(w)
+   if w.include then
+      w:include()
+   else
+      external_interface(w)
+      internal_interface(w)
+      instance(w)
+   end
    w:unindent() w:ln("}")
 
    main.exit(0)
