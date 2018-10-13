@@ -43,7 +43,6 @@ SNABB=$DIR/../../../../snabb
 FROM_B4_PCAP=$dataset/from-b4-test.pcap
 FROM_INET_PCAP=$dataset/from-inet-test.pcap
 FROM_INET_AND_B4_PCAP=$dataset/from-inet-and-b4-test.pcap
-CONFIGS=$dataset/*.conf
 
 # make sure lwaftr gets shut down even on interrupt
 function teardown {
@@ -55,6 +54,14 @@ function teardown {
 trap teardown INT TERM
 
 TMPDIR=`mktemp -d`
+
+# first preprocess the config files
+for conf in $DIR/*.conf
+do
+    name=`basename $conf`
+    cp $DIR/base.conf $TMPDIR/$name
+    cat $conf >> $TMPDIR/$name
+done
 
 # called with benchmark name, config path, args for lwAFTR, args for loadtest
 # optionally args of the second loadtest
@@ -69,7 +76,7 @@ function run_benchmark {
     lwaftr_log=`mktemp -p $TMPDIR`
     $SNABB lwaftr run --cpu $cpu \
            --name lwaftr-release-benchmarks \
-           --conf $dataset/$config $lwaftr_args > $lwaftr_log &
+           --conf $TMPDIR/$config $lwaftr_args > $lwaftr_log &
     lwaftr_pid=$!
 
     # wait briefly to let lwaftr start up
@@ -120,7 +127,7 @@ function run_benchmark {
 
 # first ensure all configs are compiled
 echo ">> Compiling configurations (may take a while)"
-for conf in $CONFIGS
+for conf in $TMPDIR/*.conf
 do
     $SNABB lwaftr compile-configuration $conf
 done

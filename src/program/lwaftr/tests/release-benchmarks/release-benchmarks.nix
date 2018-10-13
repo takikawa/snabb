@@ -18,15 +18,27 @@ let dataset = stdenv.mkDerivation {
   snabb_pci6 = builtins.getEnv "SNABB_PCI6";
   snabb_pci7 = builtins.getEnv "SNABB_PCI7";
 
-  # substitute placeholders in the configs with actual pci addresses
+  # copy confs from script directory to nix store for builder
+  confs = stdenv.lib.source.sourceFilesBySuffices . [".conf"];
+
+  # include snabb executable (for generating configs)
+  snabb = ../../../../snabb;
+
+  # config generation parameteres
+  ipv4     = "193.5.1.100";
+  num_ips  = "1000062";
+  b4       = "fc00:1:2:3:4:5:0:7e";
+  br_addr  = "fc00:100";
+  psid_len = "6";
+
+  # build config files for test cases, include pcaps from tarball
   builder = builtins.toFile "builder.sh" "
     source $stdenv/setup
     mkdir $out
-    cp $dataset/*.pcap $out/
-    for conf in $dataset/lwaftr*.conf
+    for conf in $confs/lwaftr*.conf
     do
         target=$out/`basename $conf`
-        cp $conf $target
+        sudo $snabb lwaftr generate-configuration --include $conf $ipv4 $num_ips $br_addr $b4 $psid_len > $target
         sed -i -e \"s/<SNABB_PCI0>/$snabb_pci0/; \\
                     s/<SNABB_PCI1>/$snabb_pci1/; \\
                     s/<SNABB_PCI2>/$snabb_pci2/; \\
@@ -37,6 +49,7 @@ let dataset = stdenv.mkDerivation {
                     s/<SNABB_PCI7>/$snabb_pci7/\" \\
             $target
     done
+    cp $dataset/*.pcap $out/
     ";
 };
-in runCommand "dummy" { dataset = dataset; } ""
+in runCommand "dummy" { dataset = dataset; snabb = snabb } ""
