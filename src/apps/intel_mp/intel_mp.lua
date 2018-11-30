@@ -1288,7 +1288,10 @@ end
 function Intel1g:set_rxstats () return end
 function Intel1g:set_txstats () return end
 
-function Intel1g:check_vmdq () return end
+function Intel1g:check_vmdq ()
+  if not self.vmdq then return end
+  error("VMDq mode is currently unsupported on 1G NICs")
+end
 function Intel1g:vmdq_enable ()
    error("unimplemented")
 end
