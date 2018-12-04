@@ -588,10 +588,8 @@ function Intel:init_rx_q ()
    })
    self:lock_sw_sem()
 
-   -- enable VLAN tag stripping in VMDq mode
-   if self.vmdq then
-      self.r.RXDCTL:set(bits { VME = 30 })
-   end
+   -- enable VLAN tag stripping
+   self.r.RXDCTL:set(bits { VME = 30 })
 
    self.r.RXDCTL:set( bits { Enable = 25 })
    self.r.RXDCTL:wait( bits { Enable = 25 })
