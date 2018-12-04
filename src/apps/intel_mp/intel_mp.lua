@@ -409,9 +409,9 @@ function Intel:new (conf)
    self:init_rx_q()
    if self.vmdq then
       self:set_MAC()
-      self:set_VLAN()
       self:set_mirror()
    end
+   self:set_VLAN()
    self:set_rxstats()
    self:set_txstats()
    self:set_tx_rate()
@@ -862,9 +862,9 @@ function Intel:stop ()
       self.r.TXDCTL(0)
       self.r.TXDCTL:wait(bits { ENABLE = 25 }, 0)
    end
+   self:unset_VLAN()
    if self.vmdq then
       self:unset_MAC()
-      self:unset_VLAN()
       self:unset_mirror()
       self:unset_pool()
    end
@@ -979,58 +979,73 @@ function Intel:add_receive_VLAN (vlan)
    assert(vlan>=0 and vlan<4096, "bad VLAN number")
    local vlan_index, first_empty
 
-   -- works the same as add_receive_MAC
-   self:lock_sw_sem()
-   for idx=0, self.max_vlan-1 do
-      local valid = self.r.PFVLVF[idx]:bits(31, 1)
+   -- In VMDq mode, need to set per-VF VLAN settings
+   if self.vmdq then
+     -- works the same as add_receive_MAC
+      self:lock_sw_sem()
+      for idx=0, self.max_vlan-1 do
+         local valid = self.r.PFVLVF[idx]:bits(31, 1)
 
-      if valid == 0 then
-         if not first_empty then
-            first_empty = idx
+         if valid == 0 then
+            if not first_empty then
+               first_empty = idx
+            end
+         elseif self.r.PFVLVF[idx]:bits(0, 11) == vlan then
+            vlan_index = idx
+            break
          end
-      elseif self.r.PFVLVF[idx]:bits(0, 11) == vlan then
-         vlan_index = idx
-         break
       end
+      self:unlock_sw_sem()
+
+      if not vlan_index and first_empty then
+         vlan_index = first_empty
+         self.r.PFVLVF[vlan_index](bits({Vl_En=31},vlan))
+      end
+
+      assert(vlan_index, "Max number of VLAN IDs reached")
+
+      self.r.PFVLVFB[2*vlan_index + math.floor(self.poolnum/32)]
+         :set(bits{PoolEna=self.poolnum%32})
    end
-   self:unlock_sw_sem()
 
-   if not vlan_index and first_empty then
-      vlan_index = first_empty
-      self.r.VFTA[math.floor(vlan/32)]:set(bits{Ena=vlan%32})
-      self.r.PFVLVF[vlan_index](bits({Vl_En=31},vlan))
-   end
-
-   assert(vlan_index, "Max number of VLAN IDs reached")
-
-   self.r.PFVLVFB[2*vlan_index + math.floor(self.poolnum/32)]
-      :set(bits{PoolEna=self.poolnum%32})
+   -- Enable VLAN L2 filter
+   self.r.VFTA[math.floor(vlan/32)]:set(bits{Ena=vlan%32})
 end
 
 function Intel:set_tag_VLAN (vlan)
    local poolnum = self.poolnum or 0
-   self.r.PFVFSPOOF[math.floor(poolnum/8)]:set(bits{VLANAS=poolnum%8+8})
-   -- set Port VLAN ID & VLANA to always add VLAN tag
-   -- TODO: on i350 it's the VMVIR register
-   self.r.PFVMVIR[poolnum](bits({VLANA=30}, vlan))
+
+   if self.vmdq then
+      self.r.PFVFSPOOF[math.floor(poolnum/8)]:set(bits{VLANAS=poolnum%8+8})
+      -- set Port VLAN ID & VLANA to always add VLAN tag
+      -- TODO: on i350 it's the VMVIR register
+      self.r.PFVMVIR[poolnum](bits({VLANA=30}, vlan))
+   else
+      -- when vmdq is not used, we do VLAN tag insertion using the
+      -- tx descriptor's VLAN field (upper 16 bits of flags)
+      self.txdesc_flags = bor(self.txdesc_flags, lshift(vlan, 48), bits{VLE=30})
+   end
 end
 
 function Intel:unset_VLAN ()
    local r = self.r
    local offs, mask = math.floor(self.poolnum/32), bits{PoolEna=self.poolnum%32}
 
-   for vln_ndx = 0, 63 do
-      if band(r.PFVLVFB[2*vln_ndx+offs](), mask) ~= 0 then
-         -- found a vlan this pool belongs to
-         r.PFVLVFB[2*vln_ndx+offs]:clr(mask)
-         if r.PFVLVFB[2*vln_ndx+offs]() == 0 then
-            -- it was the last pool of the vlan
-            local vlan = tonumber(band(r.PFVLVF[vln_ndx](), 0xFFF))
-            r.PFVLVF[vln_ndx](0x0)
-            r.VFTA[math.floor(vlan/32)]:clr(bits{Ena=vlan%32})
+   if self.vmdq then
+      for vln_ndx = 0, 63 do
+         if band(r.PFVLVFB[2*vln_ndx+offs](), mask) ~= 0 then
+            -- found a vlan this pool belongs to
+            r.PFVLVFB[2*vln_ndx+offs]:clr(mask)
+            if r.PFVLVFB[2*vln_ndx+offs]() == 0 then
+               -- it was the last pool of the vlan
+               local vlan = tonumber(band(r.PFVLVF[vln_ndx](), 0xFFF))
+               r.PFVLVF[vln_ndx](0x0)
+            end
          end
       end
    end
+
+   r.VFTA[math.floor(self.vlan/32)]:clr(bits{Ena=vlan%32})
 end
 
 function Intel:set_mirror ()

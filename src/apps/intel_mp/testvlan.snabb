@@ -4,11 +4,19 @@
 -- that vlan stripping is working.
 
 local args = main.parameters
-assert(#args == 4, "testvlan.snabb pciaddr1 pciaddr2 macaddr pcapfile")
+assert(#args == 4, "testvlan.snabb pciaddr1 pciaddr2 macaddr pcapfile use_vmdq")
 local pciaddr1 = table.remove(args, 1)
 local pciaddr2 = table.remove(args, 1)
 local macaddr  = table.remove(args, 1)
-local pcapfile = table.remove(args,1)
+local pcapfile = table.remove(args, 1)
+local use_vmdq = table.remove(args, 1)
+
+-- FIXME: too hacky?
+if use_vmdq == "true" then
+   use_vmdq = true
+else
+   use_vmdq = false
+end
 
 local basic_apps = require("apps.basic.basic_apps")
 local intel = require("apps.intel_mp.intel_mp")
@@ -26,7 +34,7 @@ config.app(c, "nic1", intel.Intel,
             wait_for_link = true})
 config.app(c, "nic2", intel.Intel,
            {pciaddr=pciaddr2,
-            vmdq = true,
+            vmdq = use_vmdq,
             macaddr = macaddr,
             vlan = 1,
             poolnum = 0,
