@@ -4,7 +4,7 @@
 -- that vlan stripping is working.
 
 local args = main.parameters
-assert(#args == 4, "testvlan.snabb pciaddr1 pciaddr2 macaddr pcapfile use_vmdq")
+assert(#args == 5, "testvlan.snabb pciaddr1 pciaddr2 macaddr pcapfile use_vmdq")
 local pciaddr1 = table.remove(args, 1)
 local pciaddr2 = table.remove(args, 1)
 local macaddr  = table.remove(args, 1)
