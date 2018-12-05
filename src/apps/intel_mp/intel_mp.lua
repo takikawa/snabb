@@ -407,11 +407,9 @@ function Intel:new (conf)
    self:load_queue_registers(byid.registers)
    self:init_tx_q()
    self:init_rx_q()
+   self:set_MAC()
    self:set_VLAN()
-   if self.vmdq then
-      self:set_MAC()
-      self:set_mirror()
-   end
+   self:set_mirror()
    self:set_rxstats()
    self:set_txstats()
    self:set_tx_rate()
@@ -860,9 +858,9 @@ function Intel:stop ()
       self.r.TXDCTL(0)
       self.r.TXDCTL:wait(bits { ENABLE = 25 }, 0)
    end
+   self:unset_MAC()
    self:unset_VLAN()
    if self.vmdq then
-      self:unset_MAC()
       self:unset_mirror()
       self:unset_pool()
    end
@@ -956,12 +954,16 @@ function Intel:add_receive_MAC (mac)
    assert(mac_index, "Max number of MAC addresses reached")
 
    -- associate MAC with the app's VMDq pool
-   self:enable_MAC_for_pool(mac_index)
+   if self.vmdq then
+      self:enable_MAC_for_pool(mac_index)
+   end
 end
 
 function Intel:set_transmit_MAC (mac)
    local poolnum = self.poolnum or 0
-   self.r.PFVFSPOOF[math.floor(poolnum/8)]:set(bits{MACAS=poolnum%8})
+   if self.vmdq then
+      self.r.PFVFSPOOF[math.floor(poolnum/8)]:set(bits{MACAS=poolnum%8})
+   end
 end
 
 -- set VLAN for the driver instance
@@ -1047,6 +1049,7 @@ function Intel:unset_VLAN ()
 end
 
 function Intel:set_mirror ()
+   if not self.vmdq then return end
    if not self.want_mirror then return end
    want_mirror = self.want_mirror
 
@@ -1512,7 +1515,6 @@ function Intel82599:check_vmdq ()
    local vmdq_shm = shm.open(self.shm_root .. "vmdq_enabled", vmdq_enabled_t)
 
    if not self.vmdq then
-      assert(not self.macaddr, "VMDq must be set to use MAC address")
       assert(not self.mirror, "VMDq must be set to specify mirroring rules")
 
       if not self.master then
