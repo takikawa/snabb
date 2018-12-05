@@ -1,28 +1,34 @@
 #!../../snabb snsh
 
--- Snabb test script for vlan tagging/insertion. This test is for checking
--- that vlan stripping is working.
+-- Snabb test script for vlan filtering and tag stripping.
+
+local basic_apps = require("apps.basic.basic_apps")
+local intel = require("apps.intel_mp.intel_mp")
+local pcap = require("apps.pcap.pcap")
+local filter = require("apps.packet_filter.pcap_filter")
+local lib = require("core.lib")
+local pci = require("lib.hardware.pci")
+local C = require("ffi").C
 
 local args = main.parameters
-assert(#args == 5, "testvlan.snabb pciaddr1 pciaddr2 macaddr pcapfile use_vmdq")
-local pciaddr1 = table.remove(args, 1)
-local pciaddr2 = table.remove(args, 1)
-local macaddr  = table.remove(args, 1)
-local pcapfile = table.remove(args, 1)
-local use_vmdq = table.remove(args, 1)
+assert(#args == 1, "testvlan.snabb use_vmdq")
 
--- FIXME: too hacky?
+local use_vmdq = args[1]
 if use_vmdq == "true" then
    use_vmdq = true
 else
    use_vmdq = false
 end
 
-local basic_apps = require("apps.basic.basic_apps")
-local intel = require("apps.intel_mp.intel_mp")
-local pcap = require("apps.pcap.pcap")
-local filter = require("apps.packet_filter.pcap_filter")
-local C = require("ffi").C
+local pciaddr1 = pci.canonical(lib.getenv("SNABB_PCI_INTEL0"))
+local pciaddr2 = pci.canonical(lib.getenv("SNABB_PCI_INTEL1"))
+
+local macaddr   = "90:72:82:78:c9:7a"
+
+-- these parameters depend on the pcap file
+local pcapfile  = "source-vlan.pcap"
+local nic_vlan  = 1
+local pkt_count = 51
 
 local c = config.new()
 config.app(c, "pcap", pcap.PcapReader, pcapfile)
@@ -35,8 +41,8 @@ config.app(c, "nic1", intel.Intel,
 config.app(c, "nic2", intel.Intel,
            {pciaddr=pciaddr2,
             vmdq = use_vmdq,
-            macaddr = macaddr,
-            vlan = 1,
+            --macaddr = macaddr,
+            vlan = nic_vlan,
             poolnum = 0,
             rxq = 0,
             wait_for_link = true})
@@ -59,5 +65,8 @@ engine.main({ duration = 1 })
 
 assert(link.stats(engine.app_table.sink.input.in1).rxpackets == 0,
        "expected zero vlan tagged packets (after stripping)")
-assert(link.stats(engine.app_table.sink.input.in2).rxpackets > 0,
-       "expected some non-vlan tagged packets (after stripping)")
+
+local stripped_count = link.stats(engine.app_table.sink.input.in2).rxpackets
+assert(stripped_count == pkt_count,
+       string.format("expected %d vlan stripped packets, got %d",
+                     pkt_count, stripped_count))
