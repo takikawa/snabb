@@ -1045,7 +1045,9 @@ function Intel:unset_VLAN ()
       end
    end
 
-   r.VFTA[math.floor(self.vlan/32)]:clr(bits{Ena=vlan%32})
+   if not self.vlan then
+      r.VFTA[math.floor(self.vlan/32)]:clr(bits{Ena=self.vlan%32})
+   end
 end
 
 function Intel:set_mirror ()
