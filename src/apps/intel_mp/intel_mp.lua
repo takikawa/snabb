@@ -407,11 +407,11 @@ function Intel:new (conf)
    self:load_queue_registers(byid.registers)
    self:init_tx_q()
    self:init_rx_q()
+   self:set_VLAN()
    if self.vmdq then
       self:set_MAC()
       self:set_mirror()
    end
-   self:set_VLAN()
    self:set_rxstats()
    self:set_txstats()
    self:set_tx_rate()
@@ -1221,6 +1221,7 @@ function Intel1g:init ()
       MPE = 4,       -- Mutlicast Promiscuous
       LPE = 5,       -- Long Packet Reception / Jumbos
       BAM = 15,      -- Broadcast Accept Mode
+      VFE = 18,      -- VLAN filter on
       SECRC = 26,    -- Strip ethernet CRC
    })
 
@@ -1489,6 +1490,9 @@ function Intel82599:init ()
 
    self:rss_enable()
 
+   -- enable vlan filter (4.6.7, 7.1.1.2)
+   self.r.VLNCTRL:set(bits { VFE=30 })
+
    -- set shm to indicate whether the NIC is in VMDq mode
    local vmdq_shm = shm.create(self.shm_root .. "vmdq_enabled", vmdq_enabled_t)
    vmdq_shm.enabled = self.vmdq
@@ -1582,8 +1586,7 @@ function Intel82599:vmdq_enable ()
    -- needs to be set for loopback (7.10.3.4)
    self.r.FCRTH[0](0x10000)
 
-   -- enable vlan filter (4.6.7, 7.1.1.2)
-   self.r.VLNCTRL:set(bits { VFE=30 })
+   -- VLAN filter is enabled in device init
 
    -- RTRUP2TC/RTTUP2TC cleared above in init
 
